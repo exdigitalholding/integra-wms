@@ -13,6 +13,7 @@ import Zonas from './pages/Zonas'
 import Enderecos from './pages/Enderecos'
 import Docas from './pages/Docas'
 import Parametros from './pages/Parametros'
+import Checklists from './pages/Checklists'
 import Usuarios from './pages/Usuarios'
 import Perfis from './pages/Perfis'
 import ReasonCodes from './pages/ReasonCodes'
@@ -33,10 +34,12 @@ export default function App() {
           <Route path="/fornecedores" element={<Fornecedores />} />
           <Route path="/transportadoras" element={<Transportadoras />} />
           <Route path="/migracao-dados" element={<MigracaoDados />} />
+          <Route path="/migracao-dados/:loteSlug" element={<MigracaoDados />} />
           <Route path="/zonas" element={<Zonas />} />
           <Route path="/enderecos" element={<Enderecos />} />
           <Route path="/docas" element={<Docas />} />
           <Route path="/parametros" element={<Parametros />} />
+          <Route path="/checklists" element={<Checklists />} />
           <Route path="/usuarios" element={<Usuarios />} />
           <Route path="/perfis" element={<Perfis />} />
           <Route path="/reason-codes" element={<ReasonCodes />} />

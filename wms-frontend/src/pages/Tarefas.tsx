@@ -1,15 +1,26 @@
 import { useState } from 'react'
 import { Repeat, ArrowRight } from 'lucide-react'
 import { useStore } from '../store/useStore'
-import { Badge, PageHeader, Tab, Tabs } from '../components/ui'
-import type { TipoTarefa } from '../lib/types'
+import { Badge, PageHeader, Tab, Tabs, type Tone } from '../components/ui'
+import type { StatusTarefa, TipoTarefa } from '../lib/types'
 
-const tipoMeta: Record<TipoTarefa, { l: string; tone: any }> = {
+const tipoMeta: Record<TipoTarefa, { l: string; tone: Tone }> = {
+  recebimento: { l: 'Recebimento', tone: 'info' },
   putaway: { l: 'Putaway', tone: 'info' },
   picking: { l: 'Picking', tone: 'primary' },
+  packing: { l: 'Packing', tone: 'accent' },
+  carregamento: { l: 'Carregamento', tone: 'info' },
   reabastecimento: { l: 'Reabastecimento', tone: 'accent' },
   contagem: { l: 'Contagem', tone: 'neutral' },
+  recontagem: { l: 'Recontagem', tone: 'warn' },
+  divergencia: { l: 'Divergência', tone: 'bad' },
   'cross-docking': { l: 'Cross-docking', tone: 'warn' },
+}
+const statusMeta: Record<StatusTarefa, { l: string; tone: Tone }> = {
+  'a-fazer': { l: 'A fazer', tone: 'neutral' },
+  fazendo: { l: 'Fazendo', tone: 'primary' },
+  feito: { l: 'Feito', tone: 'ok' },
+  problema: { l: 'Problema', tone: 'bad' },
 }
 const prioMeta = { alta: 'bad', media: 'warn', baixa: 'neutral' } as const
 
@@ -29,7 +40,7 @@ export default function Tarefas() {
         title="Fila de Tarefas & Interleaving"
         subtitle="Fila única priorizada — o sistema decide a próxima tarefa por operador"
       >
-        <Badge tone="primary" dot>{tarefas.filter((t) => t.status !== 'concluida').length} na fila</Badge>
+        <Badge tone="primary" dot>{tarefas.filter((t) => t.status !== 'feito').length} na fila</Badge>
       </PageHeader>
 
       <div className="card p-4 flex items-start gap-3 bg-accent-50/40 border-accent/10">
@@ -42,12 +53,15 @@ export default function Tarefas() {
 
       <div className="card overflow-hidden">
         <div className="px-4 pt-1">
-          <Tabs value={aba} onChange={(v) => setAba(v as any)}>
+          <Tabs value={aba} onChange={(v) => setAba(v as 'todos' | TipoTarefa)}>
             <Tab id="todos">Todas</Tab>
+            <Tab id="recebimento">Recebimento</Tab>
             <Tab id="putaway">Putaway</Tab>
             <Tab id="picking">Picking</Tab>
+            <Tab id="packing">Packing</Tab>
             <Tab id="reabastecimento">Reabastecimento</Tab>
             <Tab id="contagem">Contagem</Tab>
+            <Tab id="carregamento">Carregamento</Tab>
             <Tab id="cross-docking">Cross-docking</Tab>
           </Tabs>
         </div>
@@ -78,15 +92,13 @@ export default function Tarefas() {
                 <td className="td">{t.operador ?? <span className="text-ink-muted">—</span>}</td>
                 <td className="td mono text-xs">{t.sla ?? '—'}</td>
                 <td className="td">
-                  <Badge tone={t.status === 'concluida' ? 'ok' : t.status === 'em-andamento' ? 'primary' : 'neutral'} dot>
-                    {t.status === 'concluida' ? 'Concluída' : t.status === 'em-andamento' ? 'Em andamento' : 'Pendente'}
-                  </Badge>
+                  <Badge tone={statusMeta[t.status].tone} dot>{statusMeta[t.status].l}</Badge>
                 </td>
                 <td className="td text-right">
-                  {t.status === 'pendente' && (
+                  {t.status === 'a-fazer' && (
                     <button onClick={() => { assumirTarefa(t.id, 'Operador Demo'); toast({ tipo: 'info', titulo: 'Tarefa atribuída', texto: t.id }) }} className="btn-outline py-1.5 px-3 text-xs">Assumir</button>
                   )}
-                  {t.status === 'em-andamento' && (
+                  {(t.status === 'fazendo' || t.status === 'problema') && (
                     <button onClick={() => { concluirTarefa(t.id); toast({ tipo: 'sucesso', titulo: 'Tarefa concluída', texto: t.id }) }} className="btn-primary py-1.5 px-3 text-xs">Concluir</button>
                   )}
                 </td>

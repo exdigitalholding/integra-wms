@@ -7,6 +7,11 @@
  * `modo` do Armazém é a chave-mestra dessa escala.
  * ================================================================== */
 
+import type {
+  DemoChecklistQuestion,
+  DemoChecklistTemplate,
+} from '../../../wms-shared-demo'
+
 export type Curva = 'A' | 'B' | 'C'
 
 /* ------------------------------------------------------------------ *
@@ -247,6 +252,9 @@ export interface ReasonCode {
   ativo: boolean
 }
 
+export type ChecklistQuestion = DemoChecklistQuestion
+export type ChecklistTemplate = DemoChecklistTemplate
+
 /* ------------------------------------------------------------------ *
  * Chaves de coleção do store (CRUD genérico)
  * ------------------------------------------------------------------ */
@@ -263,3 +271,4 @@ export type CollectionKey =
   | 'usuarios'
   | 'perfis'
   | 'reasonCodes'
+  | 'checklists'

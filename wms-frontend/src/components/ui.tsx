@@ -11,7 +11,7 @@ import { cn } from '../lib/utils'
 import { useStore } from '../store/useStore'
 
 /* ---------------- Badge ---------------- */
-type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary' | 'accent'
+export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary' | 'accent'
 const toneMap: Record<Tone, string> = {
   ok: 'bg-ok-50 text-ok',
   warn: 'bg-warn-50 text-warn',

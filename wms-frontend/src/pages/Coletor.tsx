@@ -15,6 +15,8 @@ import {
 import { Badge, PageHeader } from '../components/ui'
 import { cn } from '../lib/utils'
 import { DEMO_OPERATIONAL_TASKS } from '../../../wms-shared-demo'
+import { useStore } from '../store/useStore'
+import { statusTarefaLabel, tipoTarefaLabel } from '../lib/tarefaMeta'
 
 type Fluxo = 'separar' | 'receber' | 'guardar'
 
@@ -37,6 +39,7 @@ const fluxoMeta: Record<Fluxo, { nome: string; cor: string; papel: string }> = {
 }
 
 export default function Coletor() {
+  const osAtribuidas = useStore((s) => s.tarefas.filter((t) => t.operador && t.status !== 'feito'))
   const [fluxo, setFluxo] = useState<Fluxo>('separar')
   const [passo, setPasso] = useState(0)
   const [val, setVal] = useState('')
@@ -86,6 +89,27 @@ export default function Coletor() {
             Esta tela existe para apresentacao e treinamento. Bipagem real, fila do operador e
             registro de ocorrencia pertencem ao app mobile.
           </p>
+        </div>
+      </div>
+
+      <div className="card p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold text-brand">OS atribuídas para execução no app</h2>
+          <Badge tone="primary" dot>{osAtribuidas.length} ativas</Badge>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          {osAtribuidas.slice(0, 4).map((os) => (
+            <div key={os.id} className="rounded-xl border border-line bg-surface-sub p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="mono text-xs font-semibold text-brand">{os.id}</span>
+                <Badge tone={os.status === 'problema' ? 'bad' : os.status === 'fazendo' ? 'primary' : 'neutral'}>
+                  {statusTarefaLabel(os.status)}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm font-medium text-ink-soft line-clamp-2">{os.descricao}</p>
+              <p className="mt-2 text-xs text-ink-muted">{tipoTarefaLabel(os.tipo)} · {os.operador}</p>
+            </div>
+          ))}
         </div>
       </div>
 

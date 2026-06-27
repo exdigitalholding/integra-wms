@@ -1,6 +1,8 @@
 import {
   LayoutDashboard,
   Truck,
+  Tags,
+  Layers,
   MapPin,
   Boxes,
   ClipboardCheck,
@@ -13,9 +15,9 @@ import {
   Plug,
   BarChart3,
   Settings,
-  Smartphone,
   Box,
   Shield,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -32,10 +34,13 @@ export const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, group: 'Visão geral' },
 
   { to: '/recebimento', label: 'Recebimento', icon: Truck, group: 'Inbound' },
+  { to: '/etiquetagem', label: 'Etiquetagem', icon: Tags, group: 'Inbound' },
+  { to: '/montagem', label: 'Montagem', icon: Layers, group: 'Inbound' },
   { to: '/putaway', label: 'Endereçamento', icon: MapPin, group: 'Inbound' },
   { to: '/cross-docking', label: 'Cross-docking', icon: Shuffle, group: 'Inbound' },
 
   { to: '/estoque', label: 'Estoque', icon: Boxes, group: 'Estoque' },
+  { to: '/controle-sku', label: 'Controle SKU', icon: Boxes, group: 'Estoque' },
   { to: '/mapa-3d', label: 'Planta 3D', icon: Box, group: 'Estoque', badge: 'novo' },
   { to: '/inventario', label: 'Inventário rotativo', icon: ClipboardCheck, group: 'Estoque' },
   { to: '/reabastecimento', label: 'Reabastecimento', icon: ArrowUpDown, group: 'Estoque' },
@@ -44,7 +49,8 @@ export const NAV: NavItem[] = [
   { to: '/expedicao', label: 'Packing & Expedição', icon: PackageCheck, group: 'Outbound' },
 
   { to: '/tarefas', label: 'Fila de tarefas', icon: ListTodo, group: 'Operação' },
-  { to: '/coletor', label: 'Coletor RF', icon: Smartphone, group: 'Operação' },
+  { to: '/ocorrencias', label: 'Ocorrências', icon: ShieldAlert, group: 'Operação', badge: 'P0' },
+  // Coletor RF fica fora da sidebar: acesso operacional/mobile, não navegação desktop.
 
   { to: '/faturamento', label: 'Faturamento 3PL', icon: Receipt, group: 'Gestão', only3pl: true },
   { to: '/relatorios', label: 'Relatórios & KPIs', icon: BarChart3, group: 'Gestão' },

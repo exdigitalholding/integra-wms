@@ -12,6 +12,7 @@ export type FluxoId =
   | 'guardar'
   | 'separar'
   | 'conferir'
+  | 'carregar'
   | 'contar'
   | 'abastecer';
 
@@ -54,6 +55,7 @@ export interface Tarefa {
   id: string;
   fluxo: FluxoId;
   prioridade: 'alta' | 'normal';
+  status?: OperationalTaskStatus;
   /** Resumo de uma linha pra fila de tarefas. */
   resumo: string;
   /** Sub-linha de contexto (rota, onda, cliente). */
@@ -61,6 +63,8 @@ export interface Tarefa {
   passos: Passo[];
   /** Mensagem da tela de sucesso ao concluir. */
   conclusao: string;
+  /** Contexto do checklist de chegada fisica no recebimento. */
+  recebimento?: RecebimentoChecklistContext;
 }
 
 export interface Operador {
@@ -80,4 +84,54 @@ export interface MotivoOcorrencia {
   rotulo: string;
   icon: IoniconName;
   cor: string;
+}
+
+export type ChecklistAnswerValue = 'YES' | 'NO' | 'OK' | 'NOK' | 'NA' | string | number;
+
+export interface OperationalChecklistQuestion {
+  id: string;
+  text: string;
+  type: 'BOOLEAN' | 'OK_NOK_NA' | 'PHOTO';
+  required: boolean;
+  okLabel?: string;
+  failLabel?: string;
+  failValues?: ChecklistAnswerValue[];
+  requiresPhotoOnFail?: boolean;
+  requiresObservationOnFail?: boolean;
+  blocksStep?: boolean;
+  requiresSupervisor?: boolean;
+}
+
+export type OperationalTaskStatus =
+  | 'ASSIGNED'
+  | 'ACCEPTED'
+  | 'IN_PROGRESS'
+  | 'BLOCKED'
+  | 'WAITING_SUPERVISOR'
+  | 'DONE'
+  | 'CANCELLED'
+  | 'SYNC_PENDING'
+  | 'SYNC_FAILED';
+
+export interface ChecklistBlockContext {
+  occurrenceId: string;
+  taskId: string;
+  flow: FluxoId;
+  questionId: string;
+  questionText: string;
+  requiresPhoto: boolean;
+  requiresObservation: boolean;
+  requiresSupervisor: boolean;
+  observation?: string;
+  photo?: boolean;
+}
+
+export interface RecebimentoChecklistContext {
+  /** Documento operacional do recebimento. Ex.: XYZ-123. */
+  id: string;
+  placaEsperada: string;
+  motoristaEsperado: string;
+  horarioAgendado?: string;
+  filaSeguranca: string;
+  filaAdministrativa: string;
 }

@@ -10,7 +10,7 @@ import { useSession } from '../navigation/session';
 import { useNav } from '../navigation/router';
 import { tapLeve } from '../lib/haptics';
 
-const ORDEM: FluxoId[] = ['separar', 'receber', 'guardar', 'abastecer', 'conferir', 'contar'];
+const ORDEM: FluxoId[] = ['separar', 'carregar', 'conferir', 'receber', 'guardar', 'abastecer', 'contar'];
 
 /** Tela inicial: grade de atividades. Cada card = uma cor + um ícone + uma palavra + nº de tarefas. */
 export function HomeScreen() {

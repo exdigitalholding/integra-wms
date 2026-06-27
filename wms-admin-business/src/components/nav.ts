@@ -12,6 +12,7 @@ import {
   UserCog,
   ShieldCheck,
   ClipboardList,
+  ClipboardCheck,
   Upload,
   type LucideIcon,
 } from 'lucide-react'
@@ -42,6 +43,7 @@ export const NAV: NavItem[] = [
 
   // Fase 3 — regras de operação
   { to: '/parametros', label: 'Parâmetros', icon: SlidersHorizontal, group: 'Regras de operação' },
+  { to: '/checklists', label: 'Checklists', icon: ClipboardCheck, group: 'Regras de operação', badge: 'P0' },
 
   // Fase 4 — acessos & governança
   { to: '/usuarios', label: 'Usuários', icon: UserCog, group: 'Acessos & Governança' },

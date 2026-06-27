@@ -4,7 +4,13 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
  * Roteador mínimo baseado em pilha de estado — sem dependência externa.
  * Combina com o modelo do coletor: poucas telas, sempre "uma de cada vez".
  */
-export type RouteName = 'login' | 'home' | 'lista' | 'fluxo' | 'ocorrencia' | 'sucesso';
+export type RouteName =
+  | 'login'
+  | 'home'
+  | 'lista'
+  | 'fluxo'
+  | 'ocorrencia'
+  | 'sucesso';
 
 export interface Route {
   name: RouteName;

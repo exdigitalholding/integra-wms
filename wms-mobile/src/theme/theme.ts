@@ -42,6 +42,7 @@ export const activityColors = {
   guardar: '#00A88E', // teal (putaway)
   separar: '#21274E', // marinho (picking)
   conferir: '#7C3AED', // roxo (conferência de saída)
+  carregar: '#DC2626', // vermelho operacional (carregamento / expedição)
   contar: '#E08A00', // âmbar (inventário)
   abastecer: '#0E9F6E', // verde (reabastecimento)
 } as const;

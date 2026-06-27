@@ -15,35 +15,41 @@ import {
   YAxis,
 } from 'recharts'
 import {
-  Target,
-  Gauge,
-  Timer,
-  Boxes,
-  TrendingUp,
-  AlertTriangle,
+  ClipboardCheck,
   ArrowUpRight,
   ArrowDownRight,
   Truck,
   PackageCheck,
+  Tags,
+  Warehouse,
+  Shuffle,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   FLUXO_DIA,
-  KPIS,
   OCUPACAO_ZONAS,
-  PRODUTIVIDADE_SEMANA,
+  ORDENS_EXECUCAO_SEMANA,
   STATUS_PEDIDOS,
+  VIAGENS_ETIQUETAGEM,
 } from '../lib/mock'
 import { useStore } from '../store/useStore'
-import { Badge, PageHeader, Progress } from '../components/ui'
+import { Badge, PageHeader, Progress, type Tone } from '../components/ui'
 import { cn } from '../lib/utils'
-import type { ReactNode } from 'react'
+import { calcularEtiquetas, emissaoAutomaticaIso, type ViagemComRecebimento } from '../lib/etiquetas'
+import { skusPendentesDoRecebimento } from '../lib/skuControle'
+import { useMemo, type ReactNode } from 'react'
+import type { TipoTarefa } from '../lib/types'
 
-const tipoTarefaLabel: Record<string, { l: string; tone: any }> = {
+const tipoTarefaLabel: Record<TipoTarefa, { l: string; tone: Tone }> = {
+  recebimento: { l: 'Receb.', tone: 'info' },
   putaway: { l: 'Putaway', tone: 'info' },
   picking: { l: 'Picking', tone: 'primary' },
+  packing: { l: 'Packing', tone: 'accent' },
+  carregamento: { l: 'Carga', tone: 'info' },
   reabastecimento: { l: 'Reabast.', tone: 'accent' },
   contagem: { l: 'Contagem', tone: 'neutral' },
+  recontagem: { l: 'Recont.', tone: 'warn' },
+  divergencia: { l: 'Diverg.', tone: 'bad' },
   'cross-docking': { l: 'Cross-dock', tone: 'warn' },
 }
 
@@ -115,9 +121,75 @@ const tooltipStyle = {
   fontSize: 12,
 }
 
+function formatarNumero(valor: number) {
+  return valor.toLocaleString('pt-BR')
+}
+
+function formatarPercentual(valor: number) {
+  return valor.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
+}
+
 export default function Dashboard() {
-  const { tarefas, usuario } = useStore()
-  const fila = tarefas.filter((t) => t.status !== 'concluida').slice(0, 6)
+  const { tarefas, usuario, ownerId, recebimentos, estoque, pedidos, skusControle } = useStore()
+  const recebimentosFiltrados = useMemo(
+    () => recebimentos.filter((rec) => ownerId === 'own-all' || rec.ownerId === ownerId),
+    [ownerId, recebimentos],
+  )
+  const recebimentoPorId = useMemo(
+    () => new Map(recebimentos.map((rec) => [rec.id, rec])),
+    [recebimentos],
+  )
+  const pedidoPorId = useMemo(
+    () => new Map(pedidos.map((pedido) => [pedido.id, pedido])),
+    [pedidos],
+  )
+  const tarefasFiltradas = useMemo(
+    () =>
+      tarefas.filter((tarefa) => {
+        if (ownerId === 'own-all') return true
+        if (tarefa.referenciaTipo === 'recebimento' && tarefa.referenciaId) {
+          return recebimentoPorId.get(tarefa.referenciaId)?.ownerId === ownerId
+        }
+        if (tarefa.referenciaTipo === 'pedido' && tarefa.referenciaId) {
+          return pedidoPorId.get(tarefa.referenciaId)?.ownerId === ownerId
+        }
+        return true
+      }),
+    [ownerId, pedidoPorId, recebimentoPorId, tarefas],
+  )
+  const estoqueFiltrado = useMemo(
+    () => estoque.filter((posicao) => ownerId === 'own-all' || posicao.ownerId === ownerId),
+    [ownerId, estoque],
+  )
+  const viagensProntas = useMemo<ViagemComRecebimento[]>(
+    () =>
+      VIAGENS_ETIQUETAGEM.map((viagem) => ({
+        viagem,
+        recebimento: recebimentoPorId.get(viagem.recebimentoId) ?? null,
+      })).filter((row) => {
+        if (!row.recebimento) return false
+        if (ownerId !== 'own-all' && row.recebimento.ownerId !== ownerId) return false
+        if (skusPendentesDoRecebimento(row.recebimento, skusControle).length > 0) return false
+        if (row.viagem.documentoStatus !== 'aprovado') return false
+        if (row.viagem.ordemExecucaoAtual < 4) return false
+        if (row.recebimento.status === 'divergencia' || row.recebimento.itens.some((item) => item.ocorrencia)) return false
+        return true
+      }),
+    [ownerId, recebimentoPorId, skusControle],
+  )
+  const taxaOrdemExecucao = recebimentosFiltrados.length
+    ? (recebimentosFiltrados.filter((rec) => (rec.ordemExecucaoAtual ?? 0) > 0).length / recebimentosFiltrados.length) * 100
+    : 0
+  const etiquetasEmitidas = viagensProntas.reduce((total, row) => {
+    if (!row.recebimento) return total
+    return total + calcularEtiquetas(row.viagem, row.recebimento, emissaoAutomaticaIso(row)).length
+  }, 0)
+  const palletsNoEstoque = estoqueFiltrado.filter((posicao) => posicao.quantidade > 0).length
+  const palletsEnderecados = tarefasFiltradas.filter((tarefa) => tarefa.tipo === 'putaway' && tarefa.status === 'feito').length
+  const palletsCrossDocking = tarefasFiltradas.filter(
+    (tarefa) => tarefa.tipo === 'cross-docking' && tarefa.status !== 'feito',
+  ).length
+  const fila = tarefas.filter((t) => t.status !== 'feito').slice(0, 6)
 
   return (
     <div className="space-y-6">
@@ -134,15 +206,12 @@ export default function Dashboard() {
       </PageHeader>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Kpi icon={<Target className="h-5 w-5" />} label="Acuracidade de inventário" value={KPIS.acuracidade.toString().replace('.', ',')} suffix="%" tone="ok" delta={{ v: '0,3pp', up: true, good: true }} />
-        <Kpi icon={<TrendingUp className="h-5 w-5" />} label="Produtividade (linhas/h)" value={KPIS.produtividade.toString()} tone="primary" delta={{ v: '8%', up: true, good: true }} />
-        <Kpi icon={<Gauge className="h-5 w-5" />} label="OTIF" value={KPIS.otif.toString().replace('.', ',')} suffix="%" tone="info" delta={{ v: '1,2pp', up: true, good: true }} />
-        <Kpi icon={<Boxes className="h-5 w-5" />} label="Taxa de ocupação" value={KPIS.ocupacao.toString()} suffix="%" tone="accent" delta={{ v: '4%', up: true, good: false }} />
-        <Kpi icon={<Timer className="h-5 w-5" />} label="Dock-to-stock" value={KPIS.dockToStock.toString().replace('.', ',')} suffix="h" tone="primary" delta={{ v: '0,3h', up: false, good: true }} />
-        <Kpi icon={<AlertTriangle className="h-5 w-5" />} label="Taxa de divergência" value={KPIS.divergencia.toString().replace('.', ',')} suffix="%" tone="warn" delta={{ v: '0,1pp', up: false, good: true }} />
-        <Kpi icon={<Timer className="h-5 w-5" />} label="Ciclo do pedido" value={KPIS.cicloPedido.toString().replace('.', ',')} suffix="h" tone="info" delta={{ v: '0,2h', up: false, good: true }} />
-        <Kpi icon={<PackageCheck className="h-5 w-5" />} label="Pedidos expedidos hoje" value="248" tone="ok" delta={{ v: '12%', up: true, good: true }} />
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <Kpi icon={<ClipboardCheck className="h-5 w-5" />} label="Operações com ordem de execução" value={formatarPercentual(taxaOrdemExecucao)} suffix="%" tone="ok" />
+        <Kpi icon={<Tags className="h-5 w-5" />} label="Etiquetas emitidas" value={formatarNumero(etiquetasEmitidas)} tone="accent" />
+        <Kpi icon={<Warehouse className="h-5 w-5" />} label="Pallets no estoque" value={formatarNumero(palletsNoEstoque)} tone="primary" />
+        <Kpi icon={<PackageCheck className="h-5 w-5" />} label="Pallets endereçados no armazém" value={formatarNumero(palletsEnderecados)} tone="info" />
+        <Kpi icon={<Shuffle className="h-5 w-5" />} label="Pallets em cross-docking" value={formatarNumero(palletsCrossDocking)} tone="warn" />
       </div>
 
       {/* charts row */}
@@ -199,15 +268,15 @@ export default function Dashboard() {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
-        <ChartCard title="Produtividade na semana (linhas/h)">
+        <ChartCard title="Ordens concluídas na semana">
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={PRODUTIVIDADE_SEMANA} margin={{ left: -20, right: 4 }}>
+            <BarChart data={ORDENS_EXECUCAO_SEMANA} margin={{ left: -20, right: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eef1f6" vertical={false} />
               <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={tooltipStyle} cursor={{ fill: '#f6f8fb' }} />
               <Line type="monotone" dataKey="meta" stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={2} dot={false} name="Meta" />
-              <Bar dataKey="linhas" fill="#2563eb" radius={[6, 6, 0, 0]} name="Realizado" barSize={26} />
+              <Bar dataKey="ordens" fill="#2563eb" radius={[6, 6, 0, 0]} name="Realizado" barSize={26} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>

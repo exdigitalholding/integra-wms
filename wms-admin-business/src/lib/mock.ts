@@ -1,5 +1,6 @@
 import type {
   Armazem,
+  ChecklistTemplate,
   DefinicaoParametro,
   Doca,
   Endereco,
@@ -21,6 +22,7 @@ import {
   DEMO_SKUS,
   DEMO_USERS,
   DEMO_WAREHOUSES,
+  DEMO_CHECKLIST_TEMPLATES,
 } from '../../../wms-shared-demo'
 
 /* ------------------------------------------------------------------ *
@@ -37,7 +39,10 @@ export const OWNERS: Owner[] = DEMO_OWNERS.map((item) => ({
   contato: `${item.codigo.toLowerCase()}@integra-demo.com.br`,
 }))
 
-export const SKUS: SKU[] = DEMO_SKUS.map(({ ownerId: _ownerId, ...sku }) => sku)
+export const SKUS: SKU[] = DEMO_SKUS.map(({ ownerId, ...sku }) => {
+  void ownerId
+  return sku
+})
 
 export const FORNECEDORES: Fornecedor[] = [
   { id: 'forn-1', codigo: 'F001', nome: 'Distribuidora Sul Eletro', cnpj: '56.789.012/0001-34', uf: 'SC', contato: 'pedidos@suleletro.com.br', ativo: true },
@@ -251,6 +256,8 @@ export const REASON_CODES: ReasonCode[] = [
   { id: 'rc-4', codigo: 'VENC', descricao: 'Produto vencido — bloqueio', tipo: 'bloqueio', exigeAprovacao: false, ativo: true },
   { id: 'rc-5', codigo: 'DEV-CLI', descricao: 'Devolução de cliente (logística reversa)', tipo: 'devolucao', exigeAprovacao: true, ativo: true },
 ]
+
+export const CHECKLISTS: ChecklistTemplate[] = structuredClone(DEMO_CHECKLIST_TEMPLATES)
 
 export const TIPO_REASON_LABEL: Record<string, string> = {
   ajuste_positivo: 'Ajuste positivo',

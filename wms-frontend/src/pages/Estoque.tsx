@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react'
 import { Search, Boxes, Filter } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { ownerColor, ownerName } from '../lib/mock'
-import { Badge, EmptyState, Modal, PageHeader } from '../components/ui'
+import { Badge, EmptyState, Modal, PageHeader, type Tone } from '../components/ui'
 import { cn, diasValidade, fmtDate, num } from '../lib/utils'
 import type { PosicaoEstoque, StatusEstoque } from '../lib/types'
 
-const statusMeta: Record<StatusEstoque, { l: string; tone: any }> = {
+const statusMeta: Record<StatusEstoque, { l: string; tone: Tone }> = {
   disponivel: { l: 'Disponível', tone: 'ok' },
   quarentena: { l: 'Quarentena', tone: 'warn' },
   avaria: { l: 'Avaria', tone: 'bad' },

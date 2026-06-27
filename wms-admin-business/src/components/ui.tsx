@@ -84,7 +84,7 @@ export function Modal({
     return () => window.removeEventListener('keydown', h)
   }, [open, onClose])
   if (!open) return null
-  const w = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl' }[size]
+  const w = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-7xl' }[size]
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div

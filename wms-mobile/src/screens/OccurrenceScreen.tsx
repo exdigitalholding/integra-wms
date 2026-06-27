@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { Screen } from '../components/Screen';
@@ -15,15 +15,24 @@ import { sucesso, tapMedio } from '../lib/haptics';
  * Grade de ícones grandes — operador toca o problema, opcionalmente "tira foto", confirma.
  */
 export function OccurrenceScreen() {
-  const { back } = useNav();
-  const [sel, setSel] = useState<string | null>(null);
-  const [foto, setFoto] = useState(false);
+  const { route, back, resetStack } = useNav();
+  const bloqueante = !!route.params?.bloqueante;
+  const fluxo = route.params?.flow;
+  const [sel, setSel] = useState<string | null>(route.params?.reasonCodeId ?? null);
+  const [foto, setFoto] = useState(!!route.params?.photo);
+  const [observacao, setObservacao] = useState(route.params?.observation ?? '');
   const [enviado, setEnviado] = useState(false);
 
   const enviar = () => {
     sucesso();
     setEnviado(true);
-    setTimeout(back, 1100);
+    setTimeout(() => {
+      if (bloqueante && fluxo) {
+        resetStack([{ name: 'home' }, { name: 'lista', params: { fluxo } }]);
+        return;
+      }
+      back();
+    }, 1300);
   };
 
   if (enviado) {
@@ -32,10 +41,12 @@ export function OccurrenceScreen() {
         <StatusBar style="dark" />
         <View style={styles.okWrap}>
           <View style={styles.okCircle}>
-            <Ionicons name="checkmark" size={72} color="#fff" />
+            <Ionicons name={bloqueante ? 'lock-closed' : 'checkmark'} size={72} color="#fff" />
           </View>
-          <Text style={styles.okTitle}>Problema registrado</Text>
-          <Text style={styles.okSub}>O líder foi avisado. Pode seguir.</Text>
+          <Text style={styles.okTitle}>{bloqueante ? 'OS bloqueada' : 'Problema registrado'}</Text>
+          <Text style={styles.okSub}>
+            {bloqueante ? 'O lider foi avisado. Aguarde a decisao.' : 'O lider foi avisado. Pode seguir.'}
+          </Text>
         </View>
       </Screen>
     );
@@ -45,10 +56,27 @@ export function OccurrenceScreen() {
     <Screen bg={colors.bg} edges={['bottom']}>
       <StatusBar style="light" />
       <View style={[styles.head, { backgroundColor: colors.warn }]}>
-        <TopBar title="Tive um problema" subtitle="Toque no que aconteceu" onBack={back} />
+        <TopBar
+          title={bloqueante ? 'Registrar ocorrencia' : 'Tive um problema'}
+          subtitle={bloqueante ? `${route.params?.taskId} · fluxo bloqueado` : 'Toque no que aconteceu'}
+          onBack={back}
+        />
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
+        {bloqueante ? (
+          <View style={styles.contextCard}>
+            <View style={styles.contextIcon}>
+              <Ionicons name="lock-closed" size={24} color={colors.bad} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.contextTitle}>Pergunta bloqueante reprovada</Text>
+              <Text style={styles.contextText}>{route.params?.questionText}</Text>
+              <Text style={styles.contextMeta}>Ocorrencia mock: {route.params?.occurrenceId}</Text>
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.grid}>
           {MOTIVOS.map((m) => {
             const ativo = sel === m.id;
@@ -84,10 +112,28 @@ export function OccurrenceScreen() {
             {foto ? 'Foto anexada' : 'Tirar foto (opcional)'}
           </Text>
         </Pressable>
+
+        <View style={styles.obsBox}>
+          <Text style={styles.obsLabel}>Observacao operacional</Text>
+          <TextInput
+            value={observacao}
+            onChangeText={setObservacao}
+            placeholder="Descreva o que o lider precisa saber"
+            placeholderTextColor={colors.inkMuted}
+            multiline
+            style={styles.obsInput}
+          />
+        </View>
       </ScrollView>
 
       <View style={styles.rodape}>
-        <BigButton label="Enviar e continuar" icon="send" variant="primary" onPress={enviar} disabled={!sel} />
+        <BigButton
+          label={bloqueante ? 'Enviar e bloquear OS' : 'Enviar e continuar'}
+          icon={bloqueante ? 'lock-closed' : 'send'}
+          variant={bloqueante ? 'danger' : 'primary'}
+          onPress={enviar}
+          disabled={!sel}
+        />
       </View>
     </Screen>
   );
@@ -96,6 +142,11 @@ export function OccurrenceScreen() {
 const styles = StyleSheet.create({
   head: { paddingBottom: spacing.lg },
   body: { padding: spacing.lg },
+  contextCard: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, backgroundColor: colors.badSoft, borderRadius: radius.lg, borderWidth: 2, borderColor: colors.bad, padding: spacing.lg, marginBottom: spacing.lg },
+  contextIcon: { height: 44, width: 44, borderRadius: radius.md, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  contextTitle: { fontSize: type.body, fontWeight: '900', color: colors.bad },
+  contextText: { fontSize: type.body, fontWeight: '700', color: colors.ink, marginTop: 2 },
+  contextMeta: { fontSize: type.caption, fontWeight: '800', color: colors.inkMuted, marginTop: spacing.xs },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, justifyContent: 'space-between' },
   motivo: { width: '47%', backgroundColor: colors.surface, borderRadius: radius.lg, paddingVertical: spacing.xl, alignItems: 'center', borderWidth: 2, borderColor: colors.line, ...shadow.card },
   motivoIcon: { height: 64, width: 64, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
@@ -105,6 +156,9 @@ const styles = StyleSheet.create({
   foto: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.lg, paddingVertical: spacing.lg, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 2, borderColor: colors.line, borderStyle: 'dashed' },
   fotoOn: { borderColor: colors.ok, backgroundColor: colors.okSoft, borderStyle: 'solid' },
   fotoTxt: { fontSize: type.body, fontWeight: '700', color: colors.inkSoft },
+  obsBox: { marginTop: spacing.lg, gap: spacing.sm },
+  obsLabel: { fontSize: type.label, fontWeight: '900', color: colors.inkMuted, textTransform: 'uppercase' },
+  obsInput: { minHeight: 96, borderRadius: radius.lg, borderWidth: 2, borderColor: colors.line, backgroundColor: colors.surface, padding: spacing.lg, fontSize: type.body, fontWeight: '700', color: colors.ink, textAlignVertical: 'top' },
 
   rodape: { padding: spacing.lg, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface },
 

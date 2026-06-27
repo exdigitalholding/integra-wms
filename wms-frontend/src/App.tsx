@@ -6,15 +6,19 @@ import { Toaster } from './components/ui'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Recebimento from './pages/Recebimento'
+import Etiquetagem from './pages/Etiquetagem'
+import Montagem from './pages/Montagem'
 import Putaway from './pages/Putaway'
 import CrossDocking from './pages/CrossDocking'
 import Estoque from './pages/Estoque'
+import ControleSKU from './pages/ControleSKU'
 import Inventario from './pages/Inventario'
 import Reabastecimento from './pages/Reabastecimento'
 import Picking from './pages/Picking'
 import Expedicao from './pages/Expedicao'
 import Tarefas from './pages/Tarefas'
 import Coletor from './pages/Coletor'
+import Ocorrencias from './pages/Ocorrencias'
 import Faturamento from './pages/Faturamento'
 import Relatorios from './pages/Relatorios'
 import Integracoes from './pages/Integracoes'
@@ -33,9 +37,12 @@ export default function App() {
         <Route element={autenticado ? <Shell /> : <Navigate to="/login" replace />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/recebimento" element={<Recebimento />} />
+          <Route path="/etiquetagem" element={<Etiquetagem />} />
+          <Route path="/montagem" element={<Montagem />} />
           <Route path="/putaway" element={<Putaway />} />
           <Route path="/cross-docking" element={<CrossDocking />} />
           <Route path="/estoque" element={<Estoque />} />
+          <Route path="/controle-sku" element={<ControleSKU />} />
           <Route
             path="/mapa-3d"
             element={
@@ -56,6 +63,7 @@ export default function App() {
           <Route path="/expedicao" element={<Expedicao />} />
           <Route path="/tarefas" element={<Tarefas />} />
           <Route path="/coletor" element={<Coletor />} />
+          <Route path="/ocorrencias" element={<Ocorrencias />} />
           <Route path="/faturamento" element={<Faturamento />} />
           <Route path="/relatorios" element={<Relatorios />} />
           <Route path="/integracoes" element={<Integracoes />} />

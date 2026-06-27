@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import {
   ARMAZENS,
+  CHECKLISTS,
   DOCAS,
   ENDERECOS,
   FORNECEDORES,
@@ -16,6 +17,7 @@ import {
 import { uid } from '../lib/utils'
 import type {
   Armazem,
+  ChecklistTemplate,
   CollectionKey,
   Doca,
   Endereco,
@@ -64,6 +66,7 @@ interface State {
   usuarios: Usuario[]
   perfis: Perfil[]
   reasonCodes: ReasonCode[]
+  checklists: ChecklistTemplate[]
 
   toasts: Toast[]
 
@@ -105,6 +108,7 @@ export const useStore = create<State>((set, get) => ({
   usuarios: structuredClone(USUARIOS),
   perfis: structuredClone(PERFIS),
   reasonCodes: structuredClone(REASON_CODES),
+  checklists: structuredClone(CHECKLISTS),
 
   toasts: [],
 

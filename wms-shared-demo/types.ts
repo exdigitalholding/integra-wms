@@ -80,6 +80,7 @@ export interface DemoOccurrenceReason {
     | 'local-vazio'
   exigeFoto?: boolean
   exigeAprovacao?: boolean
+  bloqueiaFluxo?: boolean
   cor: string
 }
 
@@ -112,9 +113,11 @@ export interface DemoOperationalTask {
     | 'guardar'
     | 'separar'
     | 'conferir'
+    | 'carregar'
     | 'contar'
     | 'abastecer'
   prioridade: 'alta' | 'normal'
+  status?: DemoOperationalTaskStatus
   resumo: string
   contexto: string
   conclusao: string
@@ -143,4 +146,113 @@ export interface DemoAppResponsibility {
   classificacao: DemoAppScope
   papel: string
   acaoEsperada: string
+}
+
+export type DemoOperationalTaskStatus =
+  | 'ASSIGNED'
+  | 'ACCEPTED'
+  | 'IN_PROGRESS'
+  | 'BLOCKED'
+  | 'WAITING_SUPERVISOR'
+  | 'DONE'
+  | 'CANCELLED'
+  | 'SYNC_PENDING'
+  | 'SYNC_FAILED'
+
+export type DemoChecklistFlow =
+  | 'receber'
+  | 'guardar'
+  | 'separar'
+  | 'conferir'
+  | 'carregar'
+  | 'contar'
+  | 'abastecer'
+
+export type DemoChecklistAnswerType = 'BOOLEAN' | 'OK_NOK_NA' | 'PHOTO'
+export type DemoChecklistAnswerValue = 'YES' | 'NO' | 'OK' | 'NOK' | 'NA' | string | number
+
+export interface DemoChecklistQuestion {
+  id: string
+  text: string
+  type: DemoChecklistAnswerType
+  required: boolean
+  okLabel?: string
+  failLabel?: string
+  failValues?: DemoChecklistAnswerValue[]
+  requiresPhotoOnFail?: boolean
+  requiresObservationOnFail?: boolean
+  blocksStep?: boolean
+  requiresSupervisor?: boolean
+}
+
+export interface DemoChecklistTemplate {
+  id: string
+  code: string
+  name: string
+  flow: DemoChecklistFlow
+  warehouseId: string
+  ownerId: string | null
+  active: boolean
+  version: number
+  blocksOnFailure: boolean
+  questions: DemoChecklistQuestion[]
+}
+
+export type DemoOccurrenceStatus =
+  | 'OPEN'
+  | 'WAITING_PHOTO'
+  | 'WAITING_SUPERVISOR'
+  | 'IN_TREATMENT'
+  | 'BLOCKING_FLOW'
+  | 'WAITING_EXTERNAL'
+  | 'RESOLVED'
+  | 'REJECTED'
+  | 'REOPENED'
+  | 'CANCELLED'
+
+export type DemoOccurrenceSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+
+export interface DemoOperationalOccurrence {
+  id: string
+  warehouseId: string
+  ownerId: string
+  type: DemoOccurrenceReason['tipo'] | 'checklist' | 'veiculo-reprovado' | 'etiqueta'
+  severity: DemoOccurrenceSeverity
+  status: DemoOccurrenceStatus
+  sourceFlow: DemoChecklistFlow
+  sourceTaskId: string
+  sourceDocumentId?: string
+  handlingUnitId?: string
+  productId?: string
+  locationId?: string
+  reasonCodeId: string
+  title: string
+  description: string
+  blocksFlow: boolean
+  blocksStock: boolean
+  assignedTo?: string | null
+  dueAt: string
+  createdBy: string
+  createdAt: string
+  resolvedAt?: string | null
+  resolutionCode?: string | null
+  evidence: Array<{
+    id: string
+    type: 'PHOTO' | 'SIGNATURE' | 'NOTE'
+    label: string
+    capturedBy: string
+    capturedAt: string
+    deviceId: string
+  }>
+}
+
+export interface DemoOperationalEvent {
+  id: string
+  objectType: 'task' | 'occurrence' | 'label' | 'staging' | 'integration'
+  objectId: string
+  eventType: string
+  message: string
+  payload?: Record<string, string | number | boolean | null>
+  userId: string
+  timestamp: string
 }

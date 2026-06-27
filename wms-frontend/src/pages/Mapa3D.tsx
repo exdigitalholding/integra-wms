@@ -3,11 +3,28 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid, Html, Edges, RoundedBox } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
-import { MapPin, ArrowRight, CheckCircle2, Boxes, Move3d, RotateCcw, X } from 'lucide-react'
+import {
+  MapPin,
+  ArrowRight,
+  CheckCircle2,
+  Boxes,
+  Move3d,
+  RotateCcw,
+  X,
+  ClipboardList,
+  PackageOpen,
+  Plus,
+  Truck,
+} from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { Badge, PageHeader } from '../components/ui'
 import { ownerColor, ownerName } from '../lib/mock'
-import type { PosicaoEstoque } from '../lib/types'
+import {
+  ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO,
+  recebimentoLiberadoParaPutaway,
+  tarefaPutawayLiberada,
+} from '../lib/skuControle'
+import type { ItemRecebimento, Pedido, PosicaoEstoque, Recebimento, Romaneio, Tarefa } from '../lib/types'
 import {
   RUAS,
   COLS,
@@ -300,7 +317,17 @@ function Cena({
 
 /* ====================== Página ====================== */
 export default function Mapa3D() {
-  const { tarefas, estoque, assumirTarefa, concluirTarefa, toast } = useStore()
+  const {
+    tarefas,
+    estoque,
+    recebimentos,
+    pedidos,
+    romaneios,
+    criarTarefa,
+    assumirTarefa,
+    concluirTarefa,
+    toast,
+  } = useStore()
   const slots = useMemo(() => buildSlots(), [])
 
   // posições guardadas via putaway nesta sessão (overlay sobre o estoque)
@@ -319,19 +346,33 @@ export default function Mapa3D() {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
   const [focus, setFocus] = useState<Focus>(null)
   const controls = useRef<OrbitControlsImpl | null>(null)
+  const focusNonce = useRef(0)
 
-  const filaPutaway = tarefas.filter((t) => t.tipo === 'putaway')
+  const filaPutaway = tarefas.filter((t) => t.tipo === 'putaway' && tarefaPutawayLiberada(t, recebimentos))
+  const putawayBloqueados = tarefas.filter((t) => t.tipo === 'putaway' && !tarefaPutawayLiberada(t, recebimentos)).length
+  const filaRetirada = tarefas.filter((t) => t.tipo === 'picking' || t.tipo === 'packing' || t.tipo === 'carregamento')
   const tarefa = tarefas.find((t) => t.id === putawayId) ?? null
   const targetSlot = targetKey ? slots.find((s) => s.key === targetKey) ?? null : null
   const selectedSlot = selectedKey ? slots.find((s) => s.key === selectedKey) ?? null : null
   const selectedItem = selectedSlot ? ocupacao.get(selectedSlot.key) : undefined
 
-  const flyTo = (slot: Slot) => setFocus({ x: slot.x, y: slot.y, z: slot.z, nonce: Math.random() })
+  const flyTo = (slot: Slot) => {
+    focusNonce.current += 1
+    setFocus({ x: slot.x, y: slot.y, z: slot.z, nonce: focusNonce.current })
+  }
 
   function iniciarPutaway(id: string) {
     const t = tarefas.find((x) => x.id === id)
     if (!t) return
-    if (t.status === 'pendente') assumirTarefa(id, 'Operador Demo')
+    if (!tarefaPutawayLiberada(t, recebimentos)) {
+      toast({
+        tipo: 'aviso',
+        titulo: 'Putaway bloqueado',
+        texto: `${t.referenciaId ?? t.id} ainda não chegou na ordem ${ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}: classificação de destino + endereçamento.`,
+      })
+      return
+    }
+    if (t.status === 'a-fazer') assumirTarefa(id, 'Operador Demo')
     setPutawayId(id)
     setSelectedKey(null)
 
@@ -385,14 +426,120 @@ export default function Mapa3D() {
     setTargetKey(null)
   }
 
+  function destinoSugerido(item: ItemRecebimento) {
+    if (item.skuCodigo.startsWith('SKU-102')) return 'A-12-04-1'
+    if (item.skuCodigo.startsWith('SKU-200')) return 'B-05-02-2'
+    if (item.skuCodigo.startsWith('SKU-300')) return 'C-08-01-1'
+    if (item.skuCodigo.startsWith('MP-')) return 'D-01-01-1'
+    return 'Endereço sugerido'
+  }
+
+  function criarOsGuardaPrevista(rec: Recebimento, item: ItemRecebimento) {
+    if (!recebimentoLiberadoParaPutaway(rec)) {
+      toast({
+        tipo: 'aviso',
+        titulo: 'Putaway bloqueado',
+        texto: `${rec.id} ainda não chegou na ordem ${ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}: classificação de destino + endereçamento.`,
+      })
+      return
+    }
+
+    const destino = destinoSugerido(item)
+    const id = criarTarefa({
+      tipo: 'putaway',
+      prioridade: rec.status === 'divergencia' ? 'alta' : 'media',
+      operador: null,
+      origem: rec.status === 'agendado' ? `Agenda ${rec.doca}` : `PISO-${rec.doca.replace(/\s/g, '-')}`,
+      destino,
+      sku: item.skuCodigo,
+      descricao: `${item.descricao} · ${rec.id}`,
+      quantidade: item.contado ?? item.esperado,
+      lote: item.lote ?? null,
+      sla: rec.eta,
+      etapa: rec.status === 'agendado' ? 'Putaway planejado antes da chegada' : 'Putaway do piso',
+      referenciaTipo: 'recebimento',
+      referenciaId: rec.id,
+    })
+    toast({ tipo: 'sucesso', titulo: 'OS de guarda criada', texto: `${id} · ${item.skuCodigo} → ${destino}` })
+  }
+
+  function criarOsPickingPedido(pedido: Pedido) {
+    const quantidade = pedido.itens.reduce((acc, item) => acc + item.quantidade, 0)
+    const id = criarTarefa({
+      tipo: 'picking',
+      prioridade: pedido.prazo.includes('Hoje') ? 'alta' : 'media',
+      operador: null,
+      origem: 'Endereços de picking',
+      destino: 'PACK-01',
+      sku: pedido.id,
+      descricao: `Retirar itens do pedido ${pedido.id} · ${pedido.cliente}`,
+      quantidade,
+      sla: pedido.prazo,
+      etapa: 'Retirada para packing',
+      referenciaTipo: 'pedido',
+      referenciaId: pedido.id,
+    })
+    toast({ tipo: 'sucesso', titulo: 'OS de retirada criada', texto: `${id} · ${pedido.id} → PACK-01` })
+  }
+
+  function criarOsCarregamento(romaneio: Romaneio) {
+    const volumes = romaneio.volumes.reduce((acc, item) => acc + item.volumes, 0)
+    const id = criarTarefa({
+      tipo: 'carregamento',
+      prioridade: romaneio.status === 'em-carregamento' ? 'alta' : 'media',
+      operador: null,
+      origem: romaneio.id,
+      destino: romaneio.veiculo,
+      sku: romaneio.id,
+      descricao: `Retirar volumes do packing e carregar ${romaneio.veiculo}`,
+      quantidade: volumes,
+      sla: 'Próxima janela',
+      etapa: 'Carregamento do veículo',
+      referenciaTipo: 'romaneio',
+      referenciaId: romaneio.id,
+    })
+    toast({ tipo: 'sucesso', titulo: 'OS de carregamento criada', texto: `${id} · ${romaneio.id} → ${romaneio.veiculo}` })
+  }
+
+  function avancarRetirada(tarefaRetirada: Tarefa) {
+    if (tarefaRetirada.status === 'a-fazer' || tarefaRetirada.status === 'problema') {
+      assumirTarefa(tarefaRetirada.id, 'Operador Demo')
+      toast({ tipo: 'info', titulo: 'OS assumida', texto: `${tarefaRetirada.id} em execução` })
+      return
+    }
+    if (tarefaRetirada.status === 'fazendo') {
+      concluirTarefa(tarefaRetirada.id)
+      toast({ tipo: 'sucesso', titulo: 'Retirada concluída', texto: tarefaRetirada.id })
+    }
+  }
+
   function resetCamera() {
-    setFocus({ x: 0, y: 3, z: 0, nonce: Math.random() })
+    focusNonce.current += 1
+    setFocus({ x: 0, y: 3, z: 0, nonce: focusNonce.current })
     if (controls.current) controls.current.target.set(0, 1.5, 0)
   }
 
-  const pendentes = filaPutaway.filter((t) => t.status !== 'concluida').length
+  const pendentes = filaPutaway.filter((t) => t.status !== 'feito').length
+  const retiradasPendentes = filaRetirada.filter((t) => t.status !== 'feito').length
   const ocupados = ocupacao.size
   const totalSlots = slots.length
+
+  const previsoesGuarda = recebimentos
+    .filter(recebimentoLiberadoParaPutaway)
+    .flatMap((rec) =>
+      rec.itens.map((item) => ({
+        rec,
+        item,
+        osExistente: filaPutaway.find((t) => t.referenciaId === rec.id && t.sku === item.skuCodigo),
+      })),
+    )
+
+  const pedidosParaRetirada = pedidos.filter(
+    (pedido) => pedido.status !== 'expedido' && !filaRetirada.some((t) => t.referenciaTipo === 'pedido' && t.referenciaId === pedido.id),
+  )
+  const romaneiosParaCarregar = romaneios.filter(
+    (romaneio) => romaneio.status !== 'despachado' && !filaRetirada.some((t) => t.tipo === 'carregamento' && t.referenciaId === romaneio.id),
+  )
 
   return (
     <div className="space-y-6">
@@ -405,6 +552,14 @@ export default function Mapa3D() {
         </Badge>
         <Badge tone="info" dot>
           {pendentes} putaway pendentes
+        </Badge>
+        {putawayBloqueados > 0 && (
+          <Badge tone="warn" dot>
+            {putawayBloqueados} bloqueadas até etapa {ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}
+          </Badge>
+        )}
+        <Badge tone="warn" dot>
+          {retiradasPendentes} retiradas pendentes
         </Badge>
       </PageHeader>
 
@@ -523,48 +678,6 @@ export default function Mapa3D() {
             </div>
           ) : null}
 
-          {/* fila de putaway */}
-          <div className="card p-4">
-            <h3 className="text-sm font-semibold text-brand mb-3 flex items-center gap-2">
-              <Boxes className="h-4 w-4 text-accent" /> Fila de putaway
-            </h3>
-            <div className="space-y-2">
-              {filaPutaway.map((t) => {
-                const ativo = t.id === putawayId
-                const concluida = t.status === 'concluida'
-                return (
-                  <button
-                    key={t.id}
-                    disabled={concluida}
-                    onClick={() => iniciarPutaway(t.id)}
-                    className={`w-full text-left rounded-xl border p-2.5 transition ${
-                      ativo
-                        ? 'border-accent bg-accent-50'
-                        : concluida
-                          ? 'border-line bg-surface-sub opacity-60'
-                          : 'border-line hover:border-accent/50 hover:bg-surface-sub'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="mono text-xs text-ink-muted">{t.id}</span>
-                      {concluida ? (
-                        <Badge tone="ok" dot>Guardado</Badge>
-                      ) : ativo ? (
-                        <Badge tone="accent" dot>Selecionado</Badge>
-                      ) : (
-                        <Badge tone={t.prioridade === 'alta' ? 'bad' : 'neutral'}>{t.prioridade}</Badge>
-                      )}
-                    </div>
-                    <p className="text-sm font-medium text-brand mt-1 truncate">{t.descricao}</p>
-                    <p className="text-xs text-ink-muted mono">
-                      {t.origem} → {t.destino} · {t.quantidade} un
-                    </p>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
           {/* ocupação por rua */}
           <div className="card p-4">
             <h3 className="text-sm font-semibold text-brand mb-3">Ocupação por rua</h3>
@@ -592,6 +705,262 @@ export default function Mapa3D() {
           </div>
         </div>
       </div>
+
+      <FluxoOperacional3D
+        filaPutaway={filaPutaway}
+        filaRetirada={filaRetirada}
+        putawayId={putawayId}
+        previsoesGuarda={previsoesGuarda}
+        pedidosParaRetirada={pedidosParaRetirada}
+        romaneiosParaCarregar={romaneiosParaCarregar}
+        onIniciarPutaway={iniciarPutaway}
+        onCriarGuarda={criarOsGuardaPrevista}
+        onCriarPicking={criarOsPickingPedido}
+        onCriarCarregamento={criarOsCarregamento}
+        onAvancarRetirada={avancarRetirada}
+      />
+    </div>
+  )
+}
+
+function FluxoOperacional3D({
+  filaPutaway,
+  filaRetirada,
+  putawayId,
+  previsoesGuarda,
+  pedidosParaRetirada,
+  romaneiosParaCarregar,
+  onIniciarPutaway,
+  onCriarGuarda,
+  onCriarPicking,
+  onCriarCarregamento,
+  onAvancarRetirada,
+}: {
+  filaPutaway: Tarefa[]
+  filaRetirada: Tarefa[]
+  putawayId: string | null
+  previsoesGuarda: Array<{ rec: Recebimento; item: ItemRecebimento; osExistente?: Tarefa }>
+  pedidosParaRetirada: Pedido[]
+  romaneiosParaCarregar: Romaneio[]
+  onIniciarPutaway: (id: string) => void
+  onCriarGuarda: (rec: Recebimento, item: ItemRecebimento) => void
+  onCriarPicking: (pedido: Pedido) => void
+  onCriarCarregamento: (romaneio: Romaneio) => void
+  onAvancarRetirada: (tarefa: Tarefa) => void
+}) {
+  return (
+    <div className="grid gap-4 2xl:grid-cols-2">
+      <section className="card p-4">
+        <div className="flex flex-col gap-2 border-b border-line pb-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-brand flex items-center gap-2">
+              <Boxes className="h-4 w-4 text-accent" /> Guardar mercadoria
+            </h2>
+            <p className="text-xs text-ink-muted mt-0.5">Putaway atual e OS futuras criadas antes do caminhão chegar.</p>
+          </div>
+          <Badge tone="info">{filaPutaway.filter((t) => t.status !== 'feito').length} pendentes</Badge>
+        </div>
+
+        <Swimlane
+          tarefas={filaPutaway}
+          activeId={putawayId}
+          emptyText="Sem OS de guarda nesta coluna."
+          actionLabel="Abrir na planta"
+          onAction={(tarefa) => onIniciarPutaway(tarefa.id)}
+        />
+
+        <div className="mt-4 rounded-xl border border-line bg-surface-sub/60 p-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-brand">Próximas mercadorias para guardar</p>
+            <p className="text-xs text-ink-muted mt-0.5">Somente recebimentos na ordem {ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}, classificação de destino + endereçamento, podem gerar OS de putaway.</p>
+            </div>
+            <Badge tone="neutral">{previsoesGuarda.filter((row) => !row.osExistente).length} sem OS</Badge>
+          </div>
+          <div className="mt-3 max-h-[340px] overflow-auto pr-1">
+            <table className="w-full min-w-[760px]">
+              <thead>
+                <tr>
+                  <th className="th">Chegada</th>
+                  <th className="th">Item</th>
+                  <th className="th">Doca</th>
+                  <th className="th text-right">Qtde</th>
+                  <th className="th">Status</th>
+                  <th className="th"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {previsoesGuarda.map(({ rec, item, osExistente }) => (
+                  <tr key={`${rec.id}-${item.skuCodigo}`} className="row-hover">
+                    <td className="td">
+                      <p className="mono font-medium text-brand">{rec.id}</p>
+                      <p className="text-[11px] text-ink-muted">{rec.data ?? 'sem data'} · {rec.eta}</p>
+                    </td>
+                    <td className="td">
+                      <p className="mono text-xs text-primary">{item.skuCodigo}</p>
+                      <p className="text-xs text-ink-soft">{item.descricao}</p>
+                    </td>
+                    <td className="td mono text-xs">{rec.doca}</td>
+                    <td className="td text-right mono">{item.contado ?? item.esperado}</td>
+                    <td className="td">
+                      {osExistente ? <Badge tone="primary">OS {osExistente.id}</Badge> : <Badge tone={rec.status === 'agendado' ? 'neutral' : 'info'}>{rec.status === 'agendado' ? 'previsto' : 'no piso'}</Badge>}
+                    </td>
+                    <td className="td text-right">
+                      <button className="btn-primary py-1.5 px-3 text-xs" disabled={!!osExistente} onClick={() => onCriarGuarda(rec, item)}>
+                        <Plus className="h-3.5 w-3.5" /> Criar OS
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section className="card p-4">
+        <div className="flex flex-col gap-2 border-b border-line pb-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-brand flex items-center gap-2">
+              <Truck className="h-4 w-4 text-primary" /> Retirar para expedição
+            </h2>
+            <p className="text-xs text-ink-muted mt-0.5">Picking, packing e carregamento para levar estoque ao veículo.</p>
+          </div>
+          <Badge tone="warn">{filaRetirada.filter((t) => t.status !== 'feito').length} pendentes</Badge>
+        </div>
+
+        <Swimlane
+          tarefas={filaRetirada}
+          emptyText="Sem OS de retirada nesta coluna."
+          actionLabel="Avançar OS"
+          onAction={onAvancarRetirada}
+        />
+
+        <div className="mt-4 grid gap-3 xl:grid-cols-2">
+          <div className="rounded-xl border border-line bg-surface-sub/60 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-brand">Pedidos sem OS de retirada</p>
+                <p className="text-xs text-ink-muted mt-0.5">Cria picking para levar itens ao packing.</p>
+              </div>
+              <Badge tone="neutral">{pedidosParaRetirada.length}</Badge>
+            </div>
+            <div className="mt-3 space-y-2 max-h-[240px] overflow-y-auto pr-1">
+              {pedidosParaRetirada.map((pedido) => (
+                <div key={pedido.id} className="rounded-lg border border-line bg-surface p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="mono text-xs font-semibold text-brand">{pedido.id}</p>
+                      <p className="text-sm text-ink-soft truncate">{pedido.cliente}</p>
+                      <p className="text-[11px] text-ink-muted">{pedido.prazo} · {pedido.itens.length} linha(s)</p>
+                    </div>
+                    <button className="btn-primary py-1.5 px-3 text-xs shrink-0" onClick={() => onCriarPicking(pedido)}>
+                      <Plus className="h-3.5 w-3.5" /> OS
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {pedidosParaRetirada.length === 0 && <EmptyQueue text="Todos os pedidos abertos já têm OS." />}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-line bg-surface-sub/60 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-brand">Romaneios para caminhão</p>
+                <p className="text-xs text-ink-muted mt-0.5">Cria carregamento do packing para o veículo.</p>
+              </div>
+              <Badge tone="neutral">{romaneiosParaCarregar.length}</Badge>
+            </div>
+            <div className="mt-3 space-y-2 max-h-[240px] overflow-y-auto pr-1">
+              {romaneiosParaCarregar.map((romaneio) => (
+                <div key={romaneio.id} className="rounded-lg border border-line bg-surface p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="mono text-xs font-semibold text-brand">{romaneio.id}</p>
+                      <p className="text-sm text-ink-soft truncate">{romaneio.veiculo}</p>
+                      <p className="text-[11px] text-ink-muted">{romaneio.volumes.length} pedido(s) · {romaneio.status}</p>
+                    </div>
+                    <button className="btn-primary py-1.5 px-3 text-xs shrink-0" onClick={() => onCriarCarregamento(romaneio)}>
+                      <Plus className="h-3.5 w-3.5" /> OS
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {romaneiosParaCarregar.length === 0 && <EmptyQueue text="Todos os romaneios abertos já têm OS." />}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function Swimlane({
+  tarefas,
+  activeId,
+  emptyText,
+  actionLabel,
+  onAction,
+}: {
+  tarefas: Tarefa[]
+  activeId?: string | null
+  emptyText: string
+  actionLabel: string
+  onAction: (tarefa: Tarefa) => void
+}) {
+  const colunas = [
+    { id: 'a-fazer', label: 'A fazer', tone: 'neutral' as const, items: tarefas.filter((t) => t.status === 'a-fazer' || t.status === 'problema') },
+    { id: 'fazendo', label: 'Fazendo', tone: 'primary' as const, items: tarefas.filter((t) => t.status === 'fazendo') },
+    { id: 'feito', label: 'Feito', tone: 'ok' as const, items: tarefas.filter((t) => t.status === 'feito') },
+  ]
+
+  return (
+    <div className="mt-4 grid gap-3 lg:grid-cols-3">
+      {colunas.map((coluna) => (
+        <div key={coluna.id} className="rounded-xl border border-line bg-surface-sub/70 p-3 h-[360px] flex min-h-0 flex-col">
+          <div className="flex items-center justify-between gap-2">
+            <Badge tone={coluna.tone} dot>{coluna.label}</Badge>
+            <span className="mono text-xs text-ink-muted">{coluna.items.length}</span>
+          </div>
+          <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {coluna.items.map((tarefa) => {
+              const active = tarefa.id === activeId
+              const done = tarefa.status === 'feito'
+              return (
+                <div key={tarefa.id} className={`rounded-lg border bg-surface p-3 ${active ? 'border-accent ring-1 ring-accent/30' : 'border-line'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="mono text-xs font-semibold text-brand">{tarefa.id}</span>
+                    <Badge tone={tarefa.status === 'problema' ? 'bad' : tarefa.prioridade === 'alta' ? 'bad' : tarefa.prioridade === 'media' ? 'warn' : 'neutral'}>
+                      {tarefa.status === 'problema' ? 'problema' : tarefa.prioridade}
+                    </Badge>
+                  </div>
+                  <p className="mt-1.5 text-sm font-medium text-ink-soft leading-snug line-clamp-2">{tarefa.descricao}</p>
+                  <p className="mt-1 text-xs text-ink-muted mono truncate">{tarefa.sku} · {tarefa.quantidade} un</p>
+                  <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-surface-sub px-2 py-1.5 text-[11px] text-ink-muted">
+                    <span className="mono truncate">{tarefa.origem}</span>
+                    <ArrowRight className="h-3 w-3 shrink-0" />
+                    <span className="mono truncate">{tarefa.destino}</span>
+                  </div>
+                  <button className="btn-outline mt-2 w-full py-1.5 text-xs" disabled={done} onClick={() => onAction(tarefa)}>
+                    {done ? <><CheckCircle2 className="h-3.5 w-3.5" /> Concluída</> : <><ClipboardList className="h-3.5 w-3.5" /> {actionLabel}</>}
+                  </button>
+                </div>
+              )
+            })}
+            {coluna.items.length === 0 && <EmptyQueue text={emptyText} />}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyQueue({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-line bg-surface/70 px-3 py-6 text-center text-xs text-ink-muted">
+      <PackageOpen className="mx-auto mb-2 h-4 w-4" />
+      {text}
     </div>
   )
 }

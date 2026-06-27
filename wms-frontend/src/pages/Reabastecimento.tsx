@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Zap, Hand, ArrowRight, CheckCircle2 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { Badge, Modal, PageHeader, ScanInput } from '../components/ui'
+import OrdemServicoPanel from '../components/OrdemServicoPanel'
 import { cn } from '../lib/utils'
 
 interface ReabRow {
@@ -51,6 +52,14 @@ export default function Reabastecimento() {
             <p className="text-sm text-ink-muted">Disparado por picking parcial. Bom WMS faz <em>interleaving</em>.</p>
           </div>
         </div>
+      </div>
+
+      <div className="card p-4 flex items-start gap-3 bg-info-50/40 border-info/10">
+        <Zap className="h-5 w-5 text-info shrink-0 mt-0.5" />
+        <p className="text-sm text-ink-soft">
+          O reabastecimento mantém o endereço de picking acima do mínimo. A OS move saldo do pulmão para
+          o picking com bipagem de origem e destino, gerando movimento interno de estoque.
+        </p>
       </div>
 
       <div className="card overflow-hidden">
@@ -104,6 +113,15 @@ export default function Reabastecimento() {
           </tbody>
         </table>
       </div>
+
+      <OrdemServicoPanel
+        title="OS de reabastecimento"
+        subtitle="Crie reposições automáticas ou sob demanda para operadores executarem no app."
+        tipos={['reabastecimento']}
+        defaultTipo="reabastecimento"
+        defaultOrigem="PUL-A-22"
+        defaultDestino="A-13-01-1"
+      />
 
       {exec && (
         <ReabExec

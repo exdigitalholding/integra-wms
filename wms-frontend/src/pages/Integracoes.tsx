@@ -1,4 +1,4 @@
-import { RefreshCw, Database, Truck, ShoppingCart, FileCode2, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
+import { RefreshCw, Database, Truck, ShoppingCart, FileCode2, CheckCircle2, AlertTriangle, Loader2, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { INTEGRACOES } from '../lib/mock'
 import { Badge, PageHeader } from '../components/ui'
@@ -6,7 +6,7 @@ import { num } from '../lib/utils'
 import type { Integracao } from '../lib/types'
 import { useStore } from '../store/useStore'
 
-const tipoIcon: Record<Integracao['tipo'], any> = {
+const tipoIcon: Record<Integracao['tipo'], LucideIcon> = {
   ERP: Database,
   TMS: Truck,
   Marketplace: ShoppingCart,

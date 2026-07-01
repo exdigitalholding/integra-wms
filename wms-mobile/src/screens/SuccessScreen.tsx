@@ -40,6 +40,18 @@ export function SuccessScreen() {
             <Ionicons name="information-circle" size={22} color="#fff" />
             <Text style={styles.infoTxt}>{tarefa.conclusao}</Text>
           </View>
+
+          {tarefa.expedicao ? (
+            <View style={styles.syncCard}>
+              <Ionicons name="cloud-upload" size={22} color="#fff" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.syncTitle}>Sync WEB pendente</Text>
+                <Text style={styles.syncTxt}>
+                  {tarefa.expedicao.tipoEventoFinal} Â· carga {tarefa.expedicao.cargaId}
+                </Text>
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.rodape}>
@@ -65,5 +77,8 @@ const styles = StyleSheet.create({
   tarefaId: { fontSize: type.body, fontWeight: '700', color: 'rgba(255,255,255,0.7)', marginTop: spacing.xs, letterSpacing: 1 },
   infoCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.xl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
   infoTxt: { flex: 1, color: '#fff', fontSize: type.body, fontWeight: '600', lineHeight: 24 },
+  syncCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)' },
+  syncTitle: { color: '#fff', fontSize: type.label, fontWeight: '900', textTransform: 'uppercase' },
+  syncTxt: { color: 'rgba(255,255,255,0.78)', fontSize: type.caption, fontWeight: '700', marginTop: 2 },
   rodape: { padding: spacing.lg, gap: spacing.md },
 });

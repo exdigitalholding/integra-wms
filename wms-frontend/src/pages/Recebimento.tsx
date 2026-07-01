@@ -9,8 +9,6 @@ import {
   Eye,
   EyeOff,
   CalendarDays,
-  ClipboardList,
-  Plus,
   Search,
   UserRound,
 } from 'lucide-react'
@@ -23,7 +21,7 @@ import {
   skusPendentesDoRecebimento,
   skusPendentesRecebimentos,
 } from '../lib/skuControle'
-import { Badge, Modal, PageHeader, ScanInput, Tab, Tabs, type Tone } from '../components/ui'
+import { Badge, Modal, PageHeader, ScanInput, SelectField, Tab, Tabs, type Tone } from '../components/ui'
 import OrdemServicoPanel from '../components/OrdemServicoPanel'
 import { cn } from '../lib/utils'
 import type {
@@ -48,7 +46,6 @@ const vertenteLabel: Record<string, string> = {
 }
 type TarefasState = ReturnType<typeof useStore.getState>['tarefas']
 type MapaAgendaModo = 'mensal' | 'semanal' | 'diario'
-type PrioridadeOs = 'alta' | 'media' | 'baixa'
 
 const hojeRecebimentoIso = isoLocal(new Date())
 const mesAgenda = {
@@ -58,70 +55,6 @@ const mesAgenda = {
 }
 const semanaAgendaInicio = '2026-06-22'
 const diasSemanaLabel = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D']
-
-const modelosOsAgenda = [
-  {
-    id: 'pre-recebimento',
-    label: 'Preparar doca',
-    etapa: 'Pré-recebimento',
-    tipo: 'recebimento',
-    prioridade: 'media',
-    origem: () => 'Agenda de docas',
-    destino: (rec: Rec) => rec.doca,
-    descricao: (rec: Rec) => `Preparar ${rec.doca}, etiquetas e conferência para ${rec.id}`,
-    quantidade: (rec: Rec) => rec.itens.length,
-  },
-  {
-    id: 'conferencia-cega',
-    label: 'Conferência cega',
-    etapa: 'Conferência cega',
-    tipo: 'recebimento',
-    prioridade: 'alta',
-    origem: (rec: Rec) => rec.doca,
-    destino: 'Área de conferência',
-    descricao: (rec: Rec) => `Conferência cega do recebimento ${rec.id}`,
-    quantidade: (rec: Rec) => rec.itens.length,
-  },
-  {
-    id: 'tratativa-divergencia',
-    label: 'Tratativa fiscal',
-    etapa: 'Tratativa de divergência',
-    tipo: 'divergencia',
-    prioridade: 'alta',
-    origem: (rec: Rec) => rec.doca,
-    destino: 'Compras/Fiscal',
-    descricao: (rec: Rec) => `Validar divergências e aceite parcial de ${rec.id}`,
-    quantidade: () => 1,
-  },
-  {
-    id: 'etiquetagem-sscc',
-    label: 'Etiquetagem SSCC',
-    etapa: 'Etiquetagem',
-    tipo: 'recebimento',
-    prioridade: 'media',
-    origem: 'Área de conferência',
-    destino: 'Staging de recebimento',
-    descricao: (rec: Rec) => `Gerar etiquetas SSCC e volumes para ${rec.id}`,
-    quantidade: (rec: Rec) => rec.itens.length,
-  },
-  {
-    id: 'putaway-dirigido',
-    label: 'Putaway dirigido',
-    etapa: 'Endereçamento sugerido',
-    tipo: 'putaway',
-    prioridade: 'media',
-    origem: 'Staging de recebimento',
-    destino: 'Endereço sugerido',
-    descricao: (rec: Rec) => `Reservar putaway dirigido para ${rec.id}`,
-    quantidade: (rec: Rec) => rec.itens.reduce((acc, item) => acc + item.esperado, 0),
-  },
-] as const
-
-type ModeloOsAgendaId = (typeof modelosOsAgenda)[number]['id']
-
-function valorModeloOs(valor: string | ((rec: Rec) => string), rec: Rec) {
-  return typeof valor === 'function' ? valor(rec) : valor
-}
 
 function isoLocal(data: Date) {
   const ano = data.getFullYear()
@@ -307,18 +240,28 @@ export default function Recebimento() {
                 className="bg-transparent outline-none flex-1 text-sm"
               />
             </div>
-            <select value={operadorFiltro} onChange={(event) => setOperadorFiltro(event.target.value)} className="input py-2">
-              <option value="todos">Todos os colaboradores</option>
-              {operadores.map((operador) => <option key={operador} value={operador}>{operador}</option>)}
-            </select>
-            <select value={execucaoFiltro} onChange={(event) => setExecucaoFiltro(event.target.value)} className="input py-2">
-              <option value="todos">Todas as execuções</option>
-              <option value="em-execucao">Em execução</option>
-              <option value="sem-operador">Sem operador</option>
-              <option value="sem-os">Sem OS vinculada</option>
-              <option value="com-problema">Com divergência/problema</option>
-              <option value="sku-pendente">SKU sem cadastro</option>
-            </select>
+            <SelectField
+              value={operadorFiltro}
+              onChange={setOperadorFiltro}
+              className="py-2"
+              options={[
+                { value: 'todos', label: 'Todos os colaboradores' },
+                ...operadores.map((operador) => ({ value: operador, label: operador })),
+              ]}
+            />
+            <SelectField
+              value={execucaoFiltro}
+              onChange={setExecucaoFiltro}
+              className="py-2"
+              options={[
+                { value: 'todos', label: 'Todas as execuções' },
+                { value: 'em-execucao', label: 'Em execução' },
+                { value: 'sem-operador', label: 'Sem operador' },
+                { value: 'sem-os', label: 'Sem OS vinculada' },
+                { value: 'com-problema', label: 'Com divergência/problema' },
+                { value: 'sku-pendente', label: 'SKU sem cadastro' },
+              ]}
+            />
             <input type="date" value={dataInicio} onChange={(event) => setDataInicio(event.target.value)} className="input py-2" />
             <input type="date" value={dataFim} onChange={(event) => setDataFim(event.target.value)} className="input py-2" />
           </div>
@@ -437,22 +380,18 @@ export default function Recebimento() {
         title="OS de recebimento e divergências"
         subtitle="Atribua conferência cega, doca, etiquetagem e tratativas para os operadores no app."
         tipos={['recebimento', 'divergencia']}
-        defaultTipo="recebimento"
-        defaultOrigem="Agenda"
-        defaultDestino="Doca"
       />
     </div>
   )
 }
 
 function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
-  const { tarefas, criarTarefa, toast } = useStore()
+  const { tarefas } = useStore()
   const [modoMapa, setModoMapa] = useState<MapaAgendaModo>('mensal')
   const [statusMapa, setStatusMapa] = useState<StatusRecebimento | 'todos'>('todos')
   const [dataDiaria, setDataDiaria] = useState(hojeRecebimentoIso)
   const [dataAberta, setDataAberta] = useState<string | null>(null)
   const [agendaAberta, setAgendaAberta] = useState<Rec | null>(null)
-  const [construtorData, setConstrutorData] = useState<string | null>(null)
 
   const recebimentosOrdenados = useMemo(
     () =>
@@ -474,34 +413,6 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
   const recebimentosDoDia = (iso: string) => recebimentosMapa.filter((rec) => rec.data === iso)
   const resumoGeral = resumoDia(recebimentosMapa.filter((rec) => rec.data?.startsWith(mesAgenda.prefixo)), tarefas)
 
-  const criarOsAgenda = (
-    rec: Rec,
-    modeloId: ModeloOsAgendaId = 'pre-recebimento',
-    overrides?: { prioridade?: PrioridadeOs; operador?: string; sla?: string },
-  ) => {
-    const modelo = modelosOsAgenda.find((item) => item.id === modeloId) ?? modelosOsAgenda[0]
-    const operador = overrides?.operador !== undefined
-      ? overrides.operador.trim() || null
-      : rec.responsavel ?? null
-    const prioridade = overrides?.prioridade ?? (rec.status === 'divergencia' ? 'alta' : modelo.prioridade)
-    const id = criarTarefa({
-      tipo: modelo.tipo,
-      prioridade,
-      operador,
-      origem: valorModeloOs(modelo.origem, rec),
-      destino: valorModeloOs(modelo.destino, rec),
-      sku: rec.documento,
-      descricao: modelo.descricao(rec),
-      quantidade: modelo.quantidade(rec),
-      sla: overrides?.sla ?? rec.eta,
-      etapa: modelo.etapa,
-      referenciaTipo: 'recebimento',
-      referenciaId: rec.id,
-      status: operador ? 'fazendo' : 'a-fazer',
-    })
-    toast({ tipo: 'sucesso', titulo: 'OS futura criada', texto: `${id} · ${modelo.label} · ${rec.doca}` })
-  }
-
   return (
     <>
       <div className="card p-4">
@@ -510,15 +421,12 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
             <CalendarDays className="h-4 w-4 text-primary mt-0.5" />
             <div>
               <h2 className="text-sm font-semibold text-brand">Mapa operacional de recebimento</h2>
-              <p className="text-xs text-ink-muted mt-0.5">Densidade por dia, OS abertas, divergências, responsáveis e criação antecipada de tarefas.</p>
+              <p className="text-xs text-ink-muted mt-0.5">Densidade por dia, OS abertas, divergências e responsáveis.</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="info">{mesAgenda.label}</Badge>
             <Badge tone="neutral">{recebimentosFuturos.length} previsões futuras</Badge>
-            <button className="btn-primary py-2 px-3 text-xs" onClick={() => setConstrutorData(modoMapa === 'diario' ? dataDiaria : semanaAgendaInicio)}>
-              <Plus className="h-3.5 w-3.5" /> Construtor de OS
-            </button>
           </div>
         </div>
 
@@ -528,12 +436,15 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
             <ModoMapaButton ativo={modoMapa === 'semanal'} onClick={() => setModoMapa('semanal')}>Semanal</ModoMapaButton>
             <ModoMapaButton ativo={modoMapa === 'diario'} onClick={() => setModoMapa('diario')}>Diário</ModoMapaButton>
           </div>
-          <select value={statusMapa} onChange={(event) => setStatusMapa(event.target.value as StatusRecebimento | 'todos')} className="input py-2">
-            <option value="todos">Todos os status</option>
-            {Object.entries(statusMeta).map(([status, meta]) => (
-              <option key={status} value={status}>{meta.l}</option>
-            ))}
-          </select>
+          <SelectField
+            value={statusMapa}
+            onChange={(value) => setStatusMapa(value as StatusRecebimento | 'todos')}
+            className="py-2"
+            options={[
+              { value: 'todos', label: 'Todos os status' },
+              ...Object.entries(statusMeta).map(([status, meta]) => ({ value: status, label: meta.l })),
+            ]}
+          />
           <input
             type="date"
             value={dataDiaria}
@@ -574,7 +485,6 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
                   isHoje={iso === hojeRecebimentoIso}
                   onAbrirDia={setDataAberta}
                   onAbrirRec={setAgendaAberta}
-                  onAbrirConstrutor={setConstrutorData}
                 />
               ))}
             </div>
@@ -594,7 +504,6 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
                 isHoje={iso === hojeRecebimentoIso}
                 onAbrirDia={setDataAberta}
                 onAbrirRec={setAgendaAberta}
-                onAbrirConstrutor={setConstrutorData}
               />
             ))}
           </div>
@@ -611,7 +520,6 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
               isHoje={dataDiaria === hojeRecebimentoIso}
               onAbrirDia={setDataAberta}
               onAbrirRec={setAgendaAberta}
-              onAbrirConstrutor={setConstrutorData}
             />
             <PainelOsDia
               iso={dataDiaria}
@@ -628,7 +536,6 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
           rec={agendaAberta}
           tarefas={tarefas.filter((t) => t.referenciaTipo === 'recebimento' && t.referenciaId === agendaAberta.id)}
           onClose={() => setAgendaAberta(null)}
-          onCriarOs={() => criarOsAgenda(agendaAberta)}
         />
       )}
 
@@ -642,15 +549,6 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
             setDataAberta(null)
             setAgendaAberta(rec)
           }}
-        />
-      )}
-
-      {construtorData && (
-        <ConstrutorOsModal
-          dataInicial={construtorData}
-          recebimentos={recebimentosFuturos}
-          onClose={() => setConstrutorData(null)}
-          onCriar={criarOsAgenda}
         />
       )}
     </>
@@ -699,7 +597,6 @@ function MapaDiaTile({
   isHoje,
   onAbrirDia,
   onAbrirRec,
-  onAbrirConstrutor,
 }: {
   iso: string
   label: string
@@ -709,7 +606,6 @@ function MapaDiaTile({
   isHoje: boolean
   onAbrirDia: (iso: string) => void
   onAbrirRec: (rec: Rec) => void
-  onAbrirConstrutor: (iso: string) => void
 }) {
   const resumo = resumoDia(recebimentos, tarefas)
   const osDia = tarefasDoDia(recebimentos, tarefas)
@@ -743,15 +639,6 @@ function MapaDiaTile({
           </span>
           <p className="mt-0.5 text-[11px] font-semibold text-primary">{viagensLabel}</p>
           <p className="mt-0.5 text-[11px] text-ink-muted">{resumo.os} OS do dia</p>
-        </button>
-        <button
-          type="button"
-          title="Criar OS futura"
-          disabled={!recebimentos.length}
-          onClick={() => onAbrirConstrutor(iso)}
-          className="h-7 w-7 shrink-0 rounded-lg border border-line bg-surface/80 text-primary grid place-items-center hover:bg-surface disabled:opacity-40"
-        >
-          <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
 
@@ -792,12 +679,9 @@ function MapaDiaTile({
 
       <OsPreviewDia tarefas={osDia} limite={limiteOs} />
 
-      <div className="mt-auto pt-2 grid grid-cols-2 gap-1.5">
+      <div className="mt-auto pt-2">
         <button type="button" className="btn-outline py-1.5 px-2 text-[11px] whitespace-nowrap" onClick={() => onAbrirDia(iso)}>
           Ver dia
-        </button>
-        <button type="button" className="btn-primary py-1.5 px-2 text-[11px] whitespace-nowrap" disabled={!recebimentos.length} onClick={() => onAbrirConstrutor(iso)}>
-          <Plus className="h-3 w-3 shrink-0" /> Criar OS
         </button>
       </div>
     </div>
@@ -947,124 +831,14 @@ function PainelOsDia({
   )
 }
 
-function ConstrutorOsModal({
-  recebimentos,
-  dataInicial,
-  onClose,
-  onCriar,
-}: {
-  recebimentos: Rec[]
-  dataInicial: string
-  onClose: () => void
-  onCriar: (rec: Rec, modelo: ModeloOsAgendaId, overrides: { prioridade: PrioridadeOs; operador?: string }) => void
-}) {
-  const [data, setData] = useState(dataInicial)
-  const [recId, setRecId] = useState('')
-  const [modeloId, setModeloId] = useState<ModeloOsAgendaId>('pre-recebimento')
-  const [prioridade, setPrioridade] = useState<PrioridadeOs>('media')
-  const [operador, setOperador] = useState('')
-  const recebimentosDaData = data ? recebimentos.filter((rec) => rec.data === data) : recebimentos
-  const opcoes = recebimentosDaData.length ? recebimentosDaData : recebimentos
-  const recSelecionado = opcoes.find((rec) => rec.id === recId) ?? opcoes[0] ?? null
-  const modeloSelecionado = modelosOsAgenda.find((modelo) => modelo.id === modeloId) ?? modelosOsAgenda[0]
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Construtor de OS futura"
-      subtitle="Crie tarefas antes da chegada física e mantenha a doca preparada."
-      size="lg"
-      footer={
-        <>
-          <button className="btn-outline" onClick={onClose}>Cancelar</button>
-          <button
-            className="btn-primary"
-            disabled={!recSelecionado}
-            onClick={() => {
-              if (!recSelecionado) return
-              onCriar(recSelecionado, modeloId, { prioridade, operador })
-              onClose()
-            }}
-          >
-            <ClipboardList className="h-4 w-4" /> Criar OS
-          </button>
-        </>
-      }
-    >
-      <div className="grid gap-4 md:grid-cols-[1fr_0.9fr]">
-        <div className="space-y-3">
-          <div>
-            <label className="label">Data planejada</label>
-            <input type="date" value={data} onChange={(event) => setData(event.target.value)} className="input" />
-            {data && !recebimentosDaData.length && (
-              <p className="mt-1 text-xs text-warn">Sem recebimento nesta data. A lista abaixo mostra os próximos agendamentos.</p>
-            )}
-          </div>
-          <div>
-            <label className="label">Recebimento</label>
-            <select value={recSelecionado?.id ?? ''} onChange={(event) => setRecId(event.target.value)} className="input">
-              {opcoes.map((rec) => (
-                <option key={rec.id} value={rec.id}>{rec.id} · {rec.data} · {rec.fornecedor}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Modelo de OS</label>
-            <select value={modeloId} onChange={(event) => setModeloId(event.target.value as ModeloOsAgendaId)} className="input">
-              {modelosOsAgenda.map((modelo) => (
-                <option key={modelo.id} value={modelo.id}>{modelo.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="label">Prioridade</label>
-              <select value={prioridade} onChange={(event) => setPrioridade(event.target.value as PrioridadeOs)} className="input">
-                <option value="alta">Alta</option>
-                <option value="media">Média</option>
-                <option value="baixa">Baixa</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Operador</label>
-              <input value={operador} onChange={(event) => setOperador(event.target.value)} className="input" placeholder={recSelecionado?.responsavel ?? 'Sem operador'} />
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-line bg-surface-sub p-3">
-          <p className="text-sm font-semibold text-brand">Prévia da OS</p>
-          {recSelecionado ? (
-            <div className="mt-3 space-y-2">
-              <InfoMini label="Recebimento" value={recSelecionado.id} />
-              <InfoMini label="Doca / ETA" value={`${recSelecionado.doca} · ${recSelecionado.eta}`} />
-              <InfoMini label="Modelo" value={modeloSelecionado.label} />
-              <div className="rounded-lg bg-surface border border-line px-2 py-2">
-                <p className="text-[10px] uppercase tracking-wide text-ink-muted">Descrição</p>
-                <p className="mt-1 text-sm font-medium text-brand">{modeloSelecionado.descricao(recSelecionado)}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 rounded-lg border border-dashed border-line bg-surface px-3 py-8 text-center text-xs text-ink-muted">
-              Nenhum recebimento futuro disponível.
-            </div>
-          )}
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
 function AgendaDetalheModal({
   rec,
   tarefas,
   onClose,
-  onCriarOs,
 }: {
   rec: Rec
   tarefas: ReturnType<typeof useStore.getState>['tarefas']
   onClose: () => void
-  onCriarOs: () => void
 }) {
   const skusControle = useStore((s) => s.skusControle)
   const pendenciasSku = useMemo(
@@ -1093,9 +867,6 @@ function AgendaDetalheModal({
       footer={
         <>
           <button className="btn-outline" onClick={onClose}>Fechar</button>
-          <button className="btn-primary" onClick={onCriarOs}>
-            <ClipboardList className="h-4 w-4" /> Criar OS
-          </button>
         </>
       }
     >
@@ -1296,15 +1067,6 @@ function DiaAgendaModal({
         )}
       </div>
     </Modal>
-  )
-}
-
-function InfoMini({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-surface-sub border border-line px-2 py-1.5">
-      <p className="text-[10px] uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mono font-medium text-brand mt-0.5">{value}</p>
-    </div>
   )
 }
 

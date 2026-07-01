@@ -6,17 +6,7 @@
 import type { FluxoId, MotivoOcorrencia, Operador, OperationalChecklistQuestion, Passo, Tarefa, IoniconName, Unidade } from '../types';
 import { activityColors } from '../theme/theme';
 import { DEMO_OCCURRENCE_REASONS, DEMO_OPERATIONAL_TASKS } from '../../../wms-shared-demo';
-
-const RECEBIMENTOS_POR_TAREFA = {
-  'T-9011': {
-    id: 'XYZ-123',
-    placaEsperada: 'BRA-4E22',
-    motoristaEsperado: 'Marcos Almeida',
-    horarioAgendado: '08:30',
-    filaSeguranca: 'GR - Gerenciamento de Risco',
-    filaAdministrativa: 'Administrativo - Tratativa de recebimento',
-  },
-};
+import { DEMO_RECEBIMENTO_POR_TAREFA } from '../../../wms-shared-demo/recebimento.ts';
 
 export const UNIDADES: Record<
   Unidade,
@@ -31,9 +21,10 @@ export const FLUXOS: Record<
   FluxoId,
   { nome: string; verbo: string; icon: IoniconName; cor: string }
 > = {
-  receber: { nome: 'Receber', verbo: 'Conferir o que chegou', icon: 'cube', cor: activityColors.receber },
-  guardar: { nome: 'Guardar', verbo: 'Enderecar no local', icon: 'file-tray-stacked', cor: activityColors.guardar },
-  separar: { nome: 'Separar', verbo: 'Picking do pedido', icon: 'bag-handle', cor: activityColors.separar },
+  receber: { nome: 'Chegada', verbo: 'Doca e checklist', icon: 'business', cor: activityColors.receber },
+  bipagem: { nome: 'Bipar', verbo: 'Etiqueta recebida', icon: 'barcode', cor: activityColors.bipagem },
+  guardar: { nome: 'Levar', verbo: 'Para o armazem', icon: 'file-tray-stacked', cor: activityColors.guardar },
+  separar: { nome: 'Tirar', verbo: 'Do armazem', icon: 'bag-handle', cor: activityColors.separar },
   conferir: { nome: 'Conferir', verbo: 'Conferencia de saida', icon: 'checkmark-done-circle', cor: activityColors.conferir },
   carregar: { nome: 'Carregar', verbo: 'Bipar volume no veiculo', icon: 'car', cor: activityColors.carregar },
   contar: { nome: 'Contar', verbo: 'Inventario no endereco', icon: 'calculator', cor: activityColors.contar },
@@ -78,7 +69,12 @@ export const TAREFAS: Tarefa[] = DEMO_OPERATIONAL_TASKS.map((item) => {
     contagemMista: passo.contagemMista,
   }));
 
-  if (item.fluxo !== 'carregar' && !passos.some((passo) => passo.rotulo.toLowerCase().includes('produto'))) {
+  if (
+    item.fluxo !== 'carregar' &&
+    item.fluxo !== 'receber' &&
+    item.fluxo !== 'bipagem' &&
+    !passos.some((passo) => passo.rotulo.toLowerCase().includes('produto'))
+  ) {
     const scanProduto = {
       instrucao: 'Bipe o produto',
       esperado: item.skuCodigo,
@@ -98,9 +94,10 @@ export const TAREFAS: Tarefa[] = DEMO_OPERATIONAL_TASKS.map((item) => {
     resumo: item.resumo,
     contexto: item.contexto,
     conclusao: item.conclusao,
+    expedicao: item.expedicao,
     passos,
     recebimento: item.fluxo === 'receber'
-      ? RECEBIMENTOS_POR_TAREFA[item.id as keyof typeof RECEBIMENTOS_POR_TAREFA]
+      ? item.recebimento ?? DEMO_RECEBIMENTO_POR_TAREFA[item.id]
       : undefined,
   };
 });
@@ -110,13 +107,14 @@ export const tarefasPorFluxo = (fluxo: FluxoId) =>
 
 export const contagemPorFluxo = (): Record<FluxoId, number> => {
   const base: Record<FluxoId, number> = {
-    receber: 0, guardar: 0, separar: 0, conferir: 0, carregar: 0, contar: 0, abastecer: 0,
+    receber: 0, bipagem: 0, guardar: 0, separar: 0, conferir: 0, carregar: 0, contar: 0, abastecer: 0,
   };
   for (const t of TAREFAS) base[t.fluxo] += 1;
   return base;
 };
 
 export const OPERATIONAL_CHECKLISTS: Record<FluxoId, OperationalChecklistQuestion[]> = {
+  bipagem: [],
   separar: [
     {
       id: 'sep-1',

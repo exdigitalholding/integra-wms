@@ -3,12 +3,15 @@
  * IMPORTANTE: sem backend nesta fase — tudo vem de data/mock.ts.
  */
 import type { Ionicons } from '@expo/vector-icons';
+import type { DemoExpeditionTaskContext } from '../../wms-shared-demo/types.ts';
+import type { DemoReceivingTaskContext } from '../../wms-shared-demo/types.ts';
 
 export type IoniconName = keyof typeof Ionicons.glyphMap;
 
 /** Os seis fluxos que o operador executa no chão. */
 export type FluxoId =
   | 'receber'
+  | 'bipagem'
   | 'guardar'
   | 'separar'
   | 'conferir'
@@ -63,6 +66,8 @@ export interface Tarefa {
   passos: Passo[];
   /** Mensagem da tela de sucesso ao concluir. */
   conclusao: string;
+  /** Contexto compartilhado com o WEB quando a tarefa veio da expedicao. */
+  expedicao?: DemoExpeditionTaskContext;
   /** Contexto do checklist de chegada fisica no recebimento. */
   recebimento?: RecebimentoChecklistContext;
 }
@@ -126,12 +131,4 @@ export interface ChecklistBlockContext {
   photo?: boolean;
 }
 
-export interface RecebimentoChecklistContext {
-  /** Documento operacional do recebimento. Ex.: XYZ-123. */
-  id: string;
-  placaEsperada: string;
-  motoristaEsperado: string;
-  horarioAgendado?: string;
-  filaSeguranca: string;
-  filaAdministrativa: string;
-}
+export interface RecebimentoChecklistContext extends DemoReceivingTaskContext {}

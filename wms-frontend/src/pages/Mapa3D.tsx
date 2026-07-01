@@ -13,7 +13,6 @@ import {
   X,
   ClipboardList,
   PackageOpen,
-  Plus,
   Truck,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
@@ -323,7 +322,6 @@ export default function Mapa3D() {
     recebimentos,
     pedidos,
     romaneios,
-    criarTarefa,
     assumirTarefa,
     concluirTarefa,
     toast,
@@ -424,81 +422,6 @@ export default function Mapa3D() {
   function cancelarPutaway() {
     setPutawayId(null)
     setTargetKey(null)
-  }
-
-  function destinoSugerido(item: ItemRecebimento) {
-    if (item.skuCodigo.startsWith('SKU-102')) return 'A-12-04-1'
-    if (item.skuCodigo.startsWith('SKU-200')) return 'B-05-02-2'
-    if (item.skuCodigo.startsWith('SKU-300')) return 'C-08-01-1'
-    if (item.skuCodigo.startsWith('MP-')) return 'D-01-01-1'
-    return 'Endereço sugerido'
-  }
-
-  function criarOsGuardaPrevista(rec: Recebimento, item: ItemRecebimento) {
-    if (!recebimentoLiberadoParaPutaway(rec)) {
-      toast({
-        tipo: 'aviso',
-        titulo: 'Putaway bloqueado',
-        texto: `${rec.id} ainda não chegou na ordem ${ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}: classificação de destino + endereçamento.`,
-      })
-      return
-    }
-
-    const destino = destinoSugerido(item)
-    const id = criarTarefa({
-      tipo: 'putaway',
-      prioridade: rec.status === 'divergencia' ? 'alta' : 'media',
-      operador: null,
-      origem: rec.status === 'agendado' ? `Agenda ${rec.doca}` : `PISO-${rec.doca.replace(/\s/g, '-')}`,
-      destino,
-      sku: item.skuCodigo,
-      descricao: `${item.descricao} · ${rec.id}`,
-      quantidade: item.contado ?? item.esperado,
-      lote: item.lote ?? null,
-      sla: rec.eta,
-      etapa: rec.status === 'agendado' ? 'Putaway planejado antes da chegada' : 'Putaway do piso',
-      referenciaTipo: 'recebimento',
-      referenciaId: rec.id,
-    })
-    toast({ tipo: 'sucesso', titulo: 'OS de guarda criada', texto: `${id} · ${item.skuCodigo} → ${destino}` })
-  }
-
-  function criarOsPickingPedido(pedido: Pedido) {
-    const quantidade = pedido.itens.reduce((acc, item) => acc + item.quantidade, 0)
-    const id = criarTarefa({
-      tipo: 'picking',
-      prioridade: pedido.prazo.includes('Hoje') ? 'alta' : 'media',
-      operador: null,
-      origem: 'Endereços de picking',
-      destino: 'PACK-01',
-      sku: pedido.id,
-      descricao: `Retirar itens do pedido ${pedido.id} · ${pedido.cliente}`,
-      quantidade,
-      sla: pedido.prazo,
-      etapa: 'Retirada para packing',
-      referenciaTipo: 'pedido',
-      referenciaId: pedido.id,
-    })
-    toast({ tipo: 'sucesso', titulo: 'OS de retirada criada', texto: `${id} · ${pedido.id} → PACK-01` })
-  }
-
-  function criarOsCarregamento(romaneio: Romaneio) {
-    const volumes = romaneio.volumes.reduce((acc, item) => acc + item.volumes, 0)
-    const id = criarTarefa({
-      tipo: 'carregamento',
-      prioridade: romaneio.status === 'em-carregamento' ? 'alta' : 'media',
-      operador: null,
-      origem: romaneio.id,
-      destino: romaneio.veiculo,
-      sku: romaneio.id,
-      descricao: `Retirar volumes do packing e carregar ${romaneio.veiculo}`,
-      quantidade: volumes,
-      sla: 'Próxima janela',
-      etapa: 'Carregamento do veículo',
-      referenciaTipo: 'romaneio',
-      referenciaId: romaneio.id,
-    })
-    toast({ tipo: 'sucesso', titulo: 'OS de carregamento criada', texto: `${id} · ${romaneio.id} → ${romaneio.veiculo}` })
   }
 
   function avancarRetirada(tarefaRetirada: Tarefa) {
@@ -714,9 +637,6 @@ export default function Mapa3D() {
         pedidosParaRetirada={pedidosParaRetirada}
         romaneiosParaCarregar={romaneiosParaCarregar}
         onIniciarPutaway={iniciarPutaway}
-        onCriarGuarda={criarOsGuardaPrevista}
-        onCriarPicking={criarOsPickingPedido}
-        onCriarCarregamento={criarOsCarregamento}
         onAvancarRetirada={avancarRetirada}
       />
     </div>
@@ -731,9 +651,6 @@ function FluxoOperacional3D({
   pedidosParaRetirada,
   romaneiosParaCarregar,
   onIniciarPutaway,
-  onCriarGuarda,
-  onCriarPicking,
-  onCriarCarregamento,
   onAvancarRetirada,
 }: {
   filaPutaway: Tarefa[]
@@ -743,9 +660,6 @@ function FluxoOperacional3D({
   pedidosParaRetirada: Pedido[]
   romaneiosParaCarregar: Romaneio[]
   onIniciarPutaway: (id: string) => void
-  onCriarGuarda: (rec: Recebimento, item: ItemRecebimento) => void
-  onCriarPicking: (pedido: Pedido) => void
-  onCriarCarregamento: (romaneio: Romaneio) => void
   onAvancarRetirada: (tarefa: Tarefa) => void
 }) {
   return (
@@ -756,7 +670,7 @@ function FluxoOperacional3D({
             <h2 className="text-sm font-semibold text-brand flex items-center gap-2">
               <Boxes className="h-4 w-4 text-accent" /> Guardar mercadoria
             </h2>
-            <p className="text-xs text-ink-muted mt-0.5">Putaway atual e OS futuras criadas antes do caminhão chegar.</p>
+            <p className="text-xs text-ink-muted mt-0.5">Putaway atual e previsões antes do caminhão chegar.</p>
           </div>
           <Badge tone="info">{filaPutaway.filter((t) => t.status !== 'feito').length} pendentes</Badge>
         </div>
@@ -773,7 +687,7 @@ function FluxoOperacional3D({
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-semibold text-brand">Próximas mercadorias para guardar</p>
-            <p className="text-xs text-ink-muted mt-0.5">Somente recebimentos na ordem {ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}, classificação de destino + endereçamento, podem gerar OS de putaway.</p>
+            <p className="text-xs text-ink-muted mt-0.5">Somente recebimentos na ordem {ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}, classificação de destino + endereçamento, aparecem liberados para putaway.</p>
             </div>
             <Badge tone="neutral">{previsoesGuarda.filter((row) => !row.osExistente).length} sem OS</Badge>
           </div>
@@ -806,9 +720,7 @@ function FluxoOperacional3D({
                       {osExistente ? <Badge tone="primary">OS {osExistente.id}</Badge> : <Badge tone={rec.status === 'agendado' ? 'neutral' : 'info'}>{rec.status === 'agendado' ? 'previsto' : 'no piso'}</Badge>}
                     </td>
                     <td className="td text-right">
-                      <button className="btn-primary py-1.5 px-3 text-xs" disabled={!!osExistente} onClick={() => onCriarGuarda(rec, item)}>
-                        <Plus className="h-3.5 w-3.5" /> Criar OS
-                      </button>
+                      {osExistente ? <Badge tone="primary">Vinculada</Badge> : <Badge tone="neutral">Sem vínculo</Badge>}
                     </td>
                   </tr>
                 ))}
@@ -841,7 +753,7 @@ function FluxoOperacional3D({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-brand">Pedidos sem OS de retirada</p>
-                <p className="text-xs text-ink-muted mt-0.5">Cria picking para levar itens ao packing.</p>
+                <p className="text-xs text-ink-muted mt-0.5">Pedidos abertos que ainda não entraram na fila de retirada.</p>
               </div>
               <Badge tone="neutral">{pedidosParaRetirada.length}</Badge>
             </div>
@@ -854,9 +766,6 @@ function FluxoOperacional3D({
                       <p className="text-sm text-ink-soft truncate">{pedido.cliente}</p>
                       <p className="text-[11px] text-ink-muted">{pedido.prazo} · {pedido.itens.length} linha(s)</p>
                     </div>
-                    <button className="btn-primary py-1.5 px-3 text-xs shrink-0" onClick={() => onCriarPicking(pedido)}>
-                      <Plus className="h-3.5 w-3.5" /> OS
-                    </button>
                   </div>
                 </div>
               ))}
@@ -868,7 +777,7 @@ function FluxoOperacional3D({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-brand">Romaneios para caminhão</p>
-                <p className="text-xs text-ink-muted mt-0.5">Cria carregamento do packing para o veículo.</p>
+                <p className="text-xs text-ink-muted mt-0.5">Romaneios abertos aguardando vínculo de carregamento.</p>
               </div>
               <Badge tone="neutral">{romaneiosParaCarregar.length}</Badge>
             </div>
@@ -881,9 +790,6 @@ function FluxoOperacional3D({
                       <p className="text-sm text-ink-soft truncate">{romaneio.veiculo}</p>
                       <p className="text-[11px] text-ink-muted">{romaneio.volumes.length} pedido(s) · {romaneio.status}</p>
                     </div>
-                    <button className="btn-primary py-1.5 px-3 text-xs shrink-0" onClick={() => onCriarCarregamento(romaneio)}>
-                      <Plus className="h-3.5 w-3.5" /> OS
-                    </button>
                   </div>
                 </div>
               ))}

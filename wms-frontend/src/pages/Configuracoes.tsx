@@ -1,6 +1,7 @@
-import { Building2, Boxes, Smartphone, Users, Workflow } from 'lucide-react'
-import { Badge, PageHeader } from '../components/ui'
+import { Building2, Boxes, Printer, Smartphone, Users, Workflow } from 'lucide-react'
+import { Badge, PageHeader, SelectField } from '../components/ui'
 import { useStore } from '../store/useStore'
+import type { ZplPrinterConfig } from '../lib/zpl'
 import {
   DEMO_DEVICES,
   DEMO_EFFECTIVE_PARAMETERS,
@@ -11,7 +12,7 @@ import {
 const grupos = [...new Set(DEMO_EFFECTIVE_PARAMETERS.map((item) => item.grupo))]
 
 export default function Configuracoes() {
-  const { perfil, cdId } = useStore()
+  const { perfil, cdId, zplPrinterConfig, atualizarZplPrinterConfig } = useStore()
   const armazem = DEMO_WAREHOUSES.find((item) => item.id === cdId)
 
   return (
@@ -67,6 +68,72 @@ export default function Configuracoes() {
         </div>
 
         <div className="space-y-4">
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between gap-3 border-b border-line bg-surface-sub px-5 py-3">
+              <div className="flex items-center gap-2">
+                <Printer className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold text-brand">Impressora de etiquetas ZPL</p>
+              </div>
+              <Badge tone="info">{zplPrinterConfig.host}:{zplPrinterConfig.port}</Badge>
+            </div>
+            <div className="grid gap-3 p-5 md:grid-cols-[1.2fr_0.6fr_0.6fr_0.6fr_0.6fr]">
+              <div>
+                <label htmlFor="config-zpl-host" className="label">Host/IP Zebra</label>
+                <input
+                  id="config-zpl-host"
+                  value={zplPrinterConfig.host}
+                  onChange={(event) => atualizarZplPrinterConfig({ ...zplPrinterConfig, host: event.target.value })}
+                  className="input mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="config-zpl-port" className="label">Porta</label>
+                <input
+                  id="config-zpl-port"
+                  type="number"
+                  min={1}
+                  value={zplPrinterConfig.port}
+                  onChange={(event) => atualizarZplPrinterConfig({ ...zplPrinterConfig, port: Number(event.target.value || 0) })}
+                  className="input mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="config-zpl-dpi" className="label">DPI</label>
+                <SelectField
+                  id="config-zpl-dpi"
+                  value={zplPrinterConfig.dpi}
+                  onChange={(value) => atualizarZplPrinterConfig({ ...zplPrinterConfig, dpi: Number(value) as ZplPrinterConfig['dpi'] })}
+                  options={[
+                    { value: '203', label: '203' },
+                    { value: '300', label: '300' },
+                  ]}
+                />
+              </div>
+              <div>
+                <label htmlFor="config-zpl-width" className="label">Largura mm</label>
+                <input
+                  id="config-zpl-width"
+                  type="number"
+                  min={70}
+                  value={zplPrinterConfig.widthMm}
+                  onChange={(event) => atualizarZplPrinterConfig({ ...zplPrinterConfig, widthMm: Number(event.target.value || 0) })}
+                  className="input mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="config-zpl-height" className="label">Altura mm</label>
+                <input
+                  id="config-zpl-height"
+                  type="number"
+                  min={40}
+                  value={zplPrinterConfig.heightMm}
+                  onChange={(event) => atualizarZplPrinterConfig({ ...zplPrinterConfig, heightMm: Number(event.target.value || 0) })}
+                  className="input mono"
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="card p-5">
             <div className="flex items-center gap-2 mb-3 text-ink-soft">
               <Building2 className="h-4 w-4" />

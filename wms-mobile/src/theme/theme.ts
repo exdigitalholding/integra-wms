@@ -39,6 +39,7 @@ export const colors = {
 /** Cores por tipo de atividade do coletor — usadas nos cards grandes da Home. */
 export const activityColors = {
   receber: '#2563EB', // azul (inbound / chegada)
+  bipagem: '#0891B2', // ciano (leitura de etiqueta)
   guardar: '#00A88E', // teal (putaway)
   separar: '#21274E', // marinho (picking)
   conferir: '#7C3AED', // roxo (conferência de saída)

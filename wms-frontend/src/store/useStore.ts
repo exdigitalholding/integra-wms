@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   CONFIGURACAO_PALLETS,
   CONTAGENS,
+  empresaSkuName,
   ESTOQUE,
   EVENTOS_OPERACIONAIS,
   OCORRENCIAS_OPERACIONAIS,
@@ -13,6 +14,8 @@ import {
   TAREFAS,
 } from '../lib/mock'
 import { ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO } from '../lib/skuControle'
+import { DEFAULT_ZPL_PRINTER_CONFIG, normalizarZplPrinterConfig } from '../lib/printerConfig'
+import type { RegistroDivergenciaEtiqueta } from '../lib/divergenciaEtiquetagem'
 import type {
   ConfiguracaoPallets,
   ContagemItem,
@@ -30,6 +33,7 @@ import type {
   Tarefa,
   Vertente,
 } from '../lib/types'
+import type { ZplPrinterConfig } from '../lib/zpl'
 
 export interface Toast {
   id: number
@@ -56,7 +60,9 @@ interface State {
   skuControleHistorico: SkuControleHistorico[]
   ocorrenciasOperacionais: OperationalOccurrence[]
   eventosOperacionais: OperationalEvent[]
+  divergenciasEtiquetagem: RegistroDivergenciaEtiqueta[]
   configuracaoPallets: ConfiguracaoPallets
+  zplPrinterConfig: ZplPrinterConfig
   toasts: Toast[]
 
   // ações de sessão
@@ -88,6 +94,7 @@ interface State {
   solicitarFotoOcorrencia: (id: string) => void
   pedirRecontagemOcorrencia: (id: string) => void
   encerrarOcorrencia: (id: string, motivo: string) => void
+  registrarDivergenciaEtiquetagem: (registro: RegistroDivergenciaEtiqueta) => void
 
   // contagem
   registrarContagem: (id: string, valor: number) => void
@@ -104,6 +111,7 @@ interface State {
 
   // configuração operacional
   atualizarConfiguracaoPallets: (input: Pick<ConfiguracaoPallets, 'total' | 'minimoLivre'>) => void
+  atualizarZplPrinterConfig: (input: ZplPrinterConfig) => void
 }
 
 let toastSeq = 1
@@ -129,6 +137,7 @@ const novoEvento = (
 
 const skuControleCampos = [
   ['ownerId', 'Owner'],
+  ['empresaId', 'Empresa'],
   ['codigo', 'Código'],
   ['descricao', 'Descrição'],
   ['tipo', 'Tipo'],
@@ -148,6 +157,7 @@ const formatarValorSkuControle = (
   valor: SkuControleInput[keyof SkuControleInput],
 ) => {
   if (valor === null || valor === undefined || valor === '') return '—'
+  if (campo === 'empresaId') return empresaSkuName(String(valor))
   if (campo === 'tipo') return valor === 'caixa-matriz' ? 'Caixa matriz' : 'Unidade'
   if (campo === 'cubagemM3' && typeof valor === 'number') {
     return `${valor.toLocaleString('pt-BR', { minimumFractionDigits: 6, maximumFractionDigits: 6 })} m³`
@@ -196,7 +206,9 @@ export const useStore = create<State>((set, get) => ({
   skuControleHistorico: structuredClone(SKU_CONTROLE_HISTORICO),
   ocorrenciasOperacionais: structuredClone(OCORRENCIAS_OPERACIONAIS),
   eventosOperacionais: structuredClone(EVENTOS_OPERACIONAIS),
+  divergenciasEtiquetagem: [],
   configuracaoPallets: structuredClone(CONFIGURACAO_PALLETS),
+  zplPrinterConfig: structuredClone(DEFAULT_ZPL_PRINTER_CONFIG),
   toasts: [],
 
   login: (perfil, usuario) =>
@@ -406,6 +418,11 @@ export const useStore = create<State>((set, get) => ({
       ],
     })),
 
+  registrarDivergenciaEtiquetagem: (registro) =>
+    set((s) => ({
+      divergenciasEtiquetagem: [registro, ...s.divergenciasEtiquetagem],
+    })),
+
   registrarContagem: (id, valor) =>
     set((s) => ({
       contagens: s.contagens.map((c) =>
@@ -550,5 +567,9 @@ export const useStore = create<State>((set, get) => ({
         atualizadoEm: new Date().toISOString(),
       },
     }))
+  },
+
+  atualizarZplPrinterConfig: (input) => {
+    set({ zplPrinterConfig: normalizarZplPrinterConfig(input) })
   },
 }))

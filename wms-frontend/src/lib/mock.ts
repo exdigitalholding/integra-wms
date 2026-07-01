@@ -3,6 +3,7 @@ import type {
   ColetaTms,
   ConfiguracaoPallets,
   ContagemItem,
+  EmpresaSku,
   FaturaServico,
   Integracao,
   Onda,
@@ -24,6 +25,11 @@ import type {
   OperationalEvent,
   OperationalOccurrence,
 } from './types'
+import {
+  ADMIN_BUSINESS_DOCAS,
+  ADMIN_BUSINESS_ENDERECOS_SUGESTOES,
+  ADMIN_BUSINESS_PUTAWAY,
+} from './adminBusinessLocations'
 
 export const CDS: CD[] = [
   { id: 'cd-sp', nome: 'CD Cajamar', uf: 'SP' },
@@ -44,10 +50,34 @@ export const ownerName = (id: string) =>
 export const ownerColor = (id: string) =>
   OWNERS.find((o) => o.id === id)?.cor ?? '#64748b'
 
+export const EMPRESAS_SKU: EmpresaSku[] = [
+  { id: 'emp-todas', nome: 'Todas as empresas', cor: '#64748b' },
+  { id: 'emp-eletrolux', nome: 'EletroLux', cor: '#0f766e' },
+  { id: 'emp-magazine-luiza', nome: 'MagazineLuiza', cor: '#2563eb' },
+  { id: 'emp-casas-bahia', nome: 'Casas Bahia', cor: '#dc2626' },
+  { id: 'emp-carrefour', nome: 'Carrefour', cor: '#7c3aed' },
+]
+
+export const empresaSkuName = (id: string) =>
+  EMPRESAS_SKU.find((empresa) => empresa.id === id)?.nome ?? 'â€”'
+export const empresaSkuColor = (id: string) =>
+  EMPRESAS_SKU.find((empresa) => empresa.id === id)?.cor ?? '#64748b'
+
+export const empresaSkuIdPorOwner = (ownerId: string) => {
+  const porOwner: Record<string, string> = {
+    'own-nano': 'emp-eletrolux',
+    'own-bella': 'emp-magazine-luiza',
+    'own-verde': 'emp-carrefour',
+    'own-forte': 'emp-casas-bahia',
+  }
+  return porOwner[ownerId] ?? 'emp-eletrolux'
+}
+
 type SkuControleSeedInput = Omit<
   SkuControle,
-  'cubagemM3' | 'criadoPor' | 'criadoEm' | 'atualizadoPor' | 'atualizadoEm'
+  'empresaId' | 'cubagemM3' | 'criadoPor' | 'criadoEm' | 'atualizadoPor' | 'atualizadoEm'
 > & {
+  empresaId?: string
   criadoPor?: string
   criadoEm?: string
   atualizadoPor?: string
@@ -68,6 +98,7 @@ const skuControleSeed = (input: SkuControleSeedInput): SkuControle => {
 
   return {
     ...sku,
+    empresaId: sku.empresaId ?? empresaSkuIdPorOwner(sku.ownerId),
     cubagemM3: cubagemSku(sku.comprimentoCm, sku.larguraCm, sku.alturaCm),
     criadoPor,
     criadoEm,
@@ -186,6 +217,7 @@ export const SKU_CONTROLE: SkuControle[] = [
   {
     id: 'sku-ctrl-1001',
     ownerId: 'own-nano',
+    empresaId: 'emp-eletrolux',
     codigo: 'SKU-10241',
     descricao: 'Fone Bluetooth Pulse X',
     tipo: 'unidade',
@@ -203,6 +235,7 @@ export const SKU_CONTROLE: SkuControle[] = [
   {
     id: 'sku-ctrl-1002',
     ownerId: 'own-nano',
+    empresaId: 'emp-eletrolux',
     codigo: 'CX-10241-06',
     descricao: 'Caixa matriz · Fone Bluetooth Pulse X c/ 6 un',
     tipo: 'caixa-matriz',
@@ -220,6 +253,7 @@ export const SKU_CONTROLE: SkuControle[] = [
   {
     id: 'sku-ctrl-1003',
     ownerId: 'own-verde',
+    empresaId: 'emp-carrefour',
     codigo: 'SKU-30011',
     descricao: 'Azeite Extra Virgem 500ml',
     tipo: 'unidade',
@@ -237,6 +271,7 @@ export const SKU_CONTROLE: SkuControle[] = [
   {
     id: 'sku-ctrl-1004',
     ownerId: 'own-verde',
+    empresaId: 'emp-carrefour',
     codigo: 'CX-30011-06',
     descricao: 'Caixa matriz · Azeite Extra Virgem 500ml c/ 6 un',
     tipo: 'caixa-matriz',
@@ -254,6 +289,7 @@ export const SKU_CONTROLE: SkuControle[] = [
   {
     id: 'sku-ctrl-1005',
     ownerId: 'own-bella',
+    empresaId: 'emp-magazine-luiza',
     codigo: 'SKU-20056',
     descricao: 'Base Líquida Tom 02',
     tipo: 'unidade',
@@ -331,10 +367,10 @@ export const RECEBIMENTOS: Recebimento[] = [
     eta: '13:10',
     status: 'em-conferencia',
     itens: [
-      { skuCodigo: 'SKU-10241', descricao: 'Fone Bluetooth Pulse X', esperado: 120, contado: null, conferido: false },
-      { skuCodigo: 'SKU-10242', descricao: 'Carregador Turbo 30W', esperado: 200, contado: null, conferido: false },
-      { skuCodigo: 'SKU-10243', descricao: 'Cabo USB-C 2m', esperado: 350, contado: null, conferido: false },
-      { skuCodigo: 'SKU-10244', descricao: 'Power Bank 10000mAh', esperado: 80, contado: null, conferido: false },
+      { skuCodigo: 'SKU-10241', descricao: 'Fone Bluetooth Pulse X', esperado: 720, contado: null, conferido: false },
+      { skuCodigo: 'SKU-10242', descricao: 'Carregador Turbo 30W', esperado: 1200, contado: null, conferido: false },
+      { skuCodigo: 'SKU-10243', descricao: 'Cabo USB-C 2m', esperado: 2100, contado: null, conferido: false },
+      { skuCodigo: 'SKU-10244', descricao: 'Power Bank 10000mAh', esperado: 480, contado: null, conferido: false },
     ],
   },
   {
@@ -730,6 +766,27 @@ export const RECEBIMENTOS: Recebimento[] = [
     ],
   },
   {
+    id: 'REC-2070',
+    doca: 'Doca 07',
+    fornecedor: 'Carga Teste Montagem',
+    documento: 'ASN 5700',
+    tipoDoc: 'ASN',
+    ownerId: 'own-nano',
+    vertente: 'ecommerce',
+    data: '2026-06-30',
+    janela: '10:30-11:30',
+    responsavel: 'Marina S.',
+    placa: 'TST-2P70',
+    ordemDoca: 9,
+    ordemExecucaoAtual: 6,
+    eta: '10:35',
+    status: 'em-conferencia',
+    itens: [
+      { skuCodigo: 'SKU-10243', descricao: 'Cabo USB-C 2m', esperado: 5750, contado: 5750, conferido: true },
+      { skuCodigo: 'SKU-10242', descricao: 'Carregador Turbo 30W', esperado: 1400, contado: 1400, conferido: true },
+    ],
+  },
+  {
     id: 'REC-2060',
     doca: 'Doca 05',
     fornecedor: 'Bella Full Commerce',
@@ -885,28 +942,28 @@ export const VIAGENS_ETIQUETAGEM: ViagemEtiquetagem[] = [
         tipoEmbalagem: 'unidade',
         unidadesPorVolume: 1,
         pesoUnitarioKg: 0.16,
-        volumesDocumento: 120,
+        volumesDocumento: 720,
       },
       {
         skuCodigo: 'SKU-10242',
         tipoEmbalagem: 'caixa-matriz',
         unidadesPorVolume: 10,
         pesoUnitarioKg: 0.11,
-        volumesDocumento: 20,
+        volumesDocumento: 120,
       },
       {
         skuCodigo: 'SKU-10243',
         tipoEmbalagem: 'caixa-matriz',
         unidadesPorVolume: 25,
         pesoUnitarioKg: 0.04,
-        volumesDocumento: 14,
+        volumesDocumento: 84,
       },
       {
         skuCodigo: 'SKU-10244',
         tipoEmbalagem: 'caixa-matriz',
         unidadesPorVolume: 4,
         pesoUnitarioKg: 0.25,
-        volumesDocumento: 20,
+        volumesDocumento: 120,
       },
     ],
   },
@@ -974,6 +1031,36 @@ export const VIAGENS_ETIQUETAGEM: ViagemEtiquetagem[] = [
         unidadesPorVolume: 4,
         pesoUnitarioKg: 0.25,
         volumesDocumento: 18,
+      },
+    ],
+  },
+  {
+    id: 'VIA-IN-7810',
+    recebimentoId: 'REC-2070',
+    ordemServicoId: 'OS-9113',
+    ordemExecucaoAtual: 6,
+    documentoStatus: 'aprovado',
+    cte: 'CT-e 35260657000010',
+    nf: 'ASN 5700',
+    origemSigla: 'SC',
+    destinoSigla: 'SP',
+    embarcador: 'Carga Teste Montagem',
+    destinatario: 'NanoTech Eletronicos - Montagem 2 pallets',
+    endereco: 'Av. Tambore, 1512 - Barueri/SP',
+    itens: [
+      {
+        skuCodigo: 'SKU-10243',
+        tipoEmbalagem: 'caixa-matriz',
+        unidadesPorVolume: 25,
+        pesoUnitarioKg: 0.04,
+        volumesDocumento: 230,
+      },
+      {
+        skuCodigo: 'SKU-10242',
+        tipoEmbalagem: 'caixa-matriz',
+        unidadesPorVolume: 10,
+        pesoUnitarioKg: 0.11,
+        volumesDocumento: 140,
       },
     ],
   },
@@ -1077,13 +1164,13 @@ export const TAREFAS: Tarefa[] = [
   { id: 'OS-9110', tipo: 'recebimento', prioridade: 'alta', operador: 'Marina S.', status: 'fazendo', origem: 'Área de etiquetagem', destino: 'Área de montagem de pallets', sku: 'ASN 5618', descricao: 'Montar pallets do recebimento REC-2059', quantidade: 48, sla: '10:25', etapa: 'Montagem de pallets', referenciaTipo: 'recebimento', referenciaId: 'REC-2059' },
   { id: 'OS-9111', tipo: 'recebimento', prioridade: 'media', operador: 'Ana P.', status: 'a-fazer', origem: 'Área de etiquetagem', destino: 'Área de montagem de pallets', sku: 'NF-e 44.203', descricao: 'Montar pallets do recebimento REC-2060', quantidade: 43, sla: '12:20', etapa: 'Montagem de pallets', referenciaTipo: 'recebimento', referenciaId: 'REC-2060' },
   { id: 'OS-9112', tipo: 'recebimento', prioridade: 'media', operador: 'Patrícia L.', status: 'fazendo', origem: 'Área de etiquetagem', destino: 'Área de montagem de pallets', sku: 'NF-e 12.962', descricao: 'Montar pallets do recebimento REC-2061', quantidade: 19, sla: '14:50', etapa: 'Montagem de pallets', referenciaTipo: 'recebimento', referenciaId: 'REC-2061' },
-  { id: 'OS-9201', tipo: 'putaway', prioridade: 'alta', operador: null, status: 'a-fazer', origem: 'STG-REC-03', destino: 'B-04-12-3', sku: 'SKU-10241', descricao: 'Fone Bluetooth Pulse X', quantidade: 120, sla: '08:55', etapa: 'Endereçamento sugerido', referenciaTipo: 'recebimento', referenciaId: 'REC-2041' },
-  { id: 'OS-9202', tipo: 'putaway', prioridade: 'media', operador: null, status: 'a-fazer', origem: 'STG-REC-03', destino: 'A-12-04-1', sku: 'SKU-10242', descricao: 'Carregador Turbo 30W', quantidade: 200, sla: '09:10', etapa: 'Endereçamento sugerido', referenciaTipo: 'recebimento', referenciaId: 'REC-2041' },
-  { id: 'OS-9203', tipo: 'putaway', prioridade: 'alta', operador: 'Carlos M.', status: 'fazendo', origem: 'PISO-REC-01', destino: 'C-08-01-1', sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', quantidade: 240, sla: '09:45', etapa: 'FEFO refrigerado', referenciaTipo: 'recebimento', referenciaId: 'REC-2042' },
-  { id: 'OS-9204', tipo: 'putaway', prioridade: 'media', operador: null, status: 'a-fazer', origem: 'PISO-REC-01', destino: 'C-08-03-1', sku: 'SKU-30012', descricao: 'Grão de Bico 1kg', quantidade: 180, sla: '10:05', etapa: 'Endereçamento sugerido', referenciaTipo: 'recebimento', referenciaId: 'REC-2042' },
-  { id: 'OS-9205', tipo: 'putaway', prioridade: 'baixa', operador: 'Ana P.', status: 'feito', origem: 'STG-REC-02', destino: 'B-04-12-3', sku: 'SKU-20055', descricao: 'Sérum Vitamina C 30ml', quantidade: 300, sla: '08:30', etapa: 'Guardado', referenciaTipo: 'recebimento', referenciaId: 'REC-2040' },
-  { id: 'OS-9206', tipo: 'putaway', prioridade: 'alta', operador: null, status: 'problema', origem: 'PISO-REC-04', destino: 'QUA-01', sku: 'SKU-10244', descricao: 'Power Bank 10000mAh', quantidade: 96, sla: '12:20', etapa: 'Quarentena por divergência', referenciaTipo: 'recebimento', referenciaId: 'REC-2044', problema: 'Aguardar decisão fiscal antes de liberar para estoque disponível.' },
-  { id: 'OS-9207', tipo: 'putaway', prioridade: 'media', operador: null, status: 'a-fazer', origem: 'STG-REC-06', destino: 'B-05-02-2', sku: 'SKU-20056', descricao: 'Base Líquida Tom 02', quantidade: 144, sla: '13:40', etapa: 'Endereçamento recorrente', referenciaTipo: 'recebimento', referenciaId: 'REC-2045' },
+  { id: 'OS-9201', tipo: 'putaway', prioridade: 'alta', operador: null, status: 'a-fazer', origem: 'STG-REC-03', destino: ADMIN_BUSINESS_PUTAWAY.nanoPrincipal, sku: 'SKU-10241', descricao: 'Fone Bluetooth Pulse X', quantidade: 120, sla: '08:55', etapa: 'Endereçamento sugerido', referenciaTipo: 'recebimento', referenciaId: 'REC-2041' },
+  { id: 'OS-9202', tipo: 'putaway', prioridade: 'media', operador: null, status: 'a-fazer', origem: 'STG-REC-03', destino: ADMIN_BUSINESS_PUTAWAY.nanoSecundario, sku: 'SKU-10242', descricao: 'Carregador Turbo 30W', quantidade: 200, sla: '09:10', etapa: 'Endereçamento sugerido', referenciaTipo: 'recebimento', referenciaId: 'REC-2041' },
+  { id: 'OS-9203', tipo: 'putaway', prioridade: 'alta', operador: 'Carlos M.', status: 'fazendo', origem: 'PISO-REC-01', destino: ADMIN_BUSINESS_PUTAWAY.verdePrincipal, sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', quantidade: 240, sla: '09:45', etapa: 'FEFO refrigerado', referenciaTipo: 'recebimento', referenciaId: 'REC-2042' },
+  { id: 'OS-9204', tipo: 'putaway', prioridade: 'media', operador: null, status: 'a-fazer', origem: 'PISO-REC-01', destino: ADMIN_BUSINESS_PUTAWAY.verdeSecundario, sku: 'SKU-30012', descricao: 'Grão de Bico 1kg', quantidade: 180, sla: '10:05', etapa: 'Endereçamento sugerido', referenciaTipo: 'recebimento', referenciaId: 'REC-2042' },
+  { id: 'OS-9205', tipo: 'putaway', prioridade: 'baixa', operador: 'Ana P.', status: 'feito', origem: 'STG-REC-02', destino: ADMIN_BUSINESS_PUTAWAY.bellaPrincipal, sku: 'SKU-20055', descricao: 'Sérum Vitamina C 30ml', quantidade: 300, sla: '08:30', etapa: 'Guardado', referenciaTipo: 'recebimento', referenciaId: 'REC-2040' },
+  { id: 'OS-9206', tipo: 'putaway', prioridade: 'alta', operador: null, status: 'problema', origem: 'PISO-REC-04', destino: ADMIN_BUSINESS_PUTAWAY.excecaoQualidade, sku: 'SKU-10244', descricao: 'Power Bank 10000mAh', quantidade: 96, sla: '12:20', etapa: 'Quarentena por divergência', referenciaTipo: 'recebimento', referenciaId: 'REC-2044', problema: 'Aguardar decisão fiscal antes de liberar para estoque disponível.' },
+  { id: 'OS-9207', tipo: 'putaway', prioridade: 'media', operador: null, status: 'a-fazer', origem: 'STG-REC-06', destino: ADMIN_BUSINESS_PUTAWAY.bellaSecundario, sku: 'SKU-20056', descricao: 'Base Líquida Tom 02', quantidade: 144, sla: '13:40', etapa: 'Endereçamento recorrente', referenciaTipo: 'recebimento', referenciaId: 'REC-2045' },
   { id: 'OS-9301', tipo: 'picking', prioridade: 'alta', operador: 'Carlos M.', status: 'fazendo', origem: 'A-12-03-2', destino: 'PACK-01', sku: 'SKU-10241', descricao: 'Fone Bluetooth Pulse X', quantidade: 2, sla: '08:40', ondaId: 'OND-501', etapa: 'Separação', referenciaTipo: 'onda', referenciaId: 'OND-501' },
   { id: 'OS-9302', tipo: 'picking', prioridade: 'alta', operador: 'Carlos M.', status: 'a-fazer', origem: 'A-12-04-1', destino: 'PACK-01', sku: 'SKU-10242', descricao: 'Carregador Turbo 30W', quantidade: 1, sla: '08:40', ondaId: 'OND-501', etapa: 'Separação', referenciaTipo: 'onda', referenciaId: 'OND-501' },
   { id: 'OS-9401', tipo: 'reabastecimento', prioridade: 'alta', operador: null, status: 'a-fazer', origem: 'PUL-A-22', destino: 'A-13-01-1', sku: 'SKU-10243', descricao: 'Cabo USB-C 2m', quantidade: 144, sla: '09:00', etapa: 'Pulmão para picking', referenciaTipo: 'endereco', referenciaId: 'A-13-01-1' },
@@ -1091,7 +1178,7 @@ export const TAREFAS: Tarefa[] = [
   { id: 'OS-9502', tipo: 'recontagem', prioridade: 'media', operador: 'Patrícia L.', status: 'problema', origem: 'B-04-12-3', destino: 'Aprovação', sku: 'SKU-20055', descricao: 'Recontagem por divergência acima da tolerância', quantidade: 0, sla: '11:20', etapa: 'Recontagem', referenciaTipo: 'contagem', referenciaId: 'CT-03', problema: 'Primeira contagem divergiu do saldo sistêmico.' },
   { id: 'OS-9601', tipo: 'packing', prioridade: 'alta', operador: 'Ana P.', status: 'fazendo', origem: 'PACK-01', destino: 'ROM-3301', sku: 'PED-77120', descricao: 'Conferência de saída, cubagem e etiqueta', quantidade: 1, sla: '10:00', etapa: 'Packing', referenciaTipo: 'pedido', referenciaId: 'PED-77120' },
   { id: 'OS-9602', tipo: 'carregamento', prioridade: 'alta', operador: null, status: 'a-fazer', origem: 'ROM-3301', destino: 'Van — PLT-2D45', sku: 'ROM-3301', descricao: 'Bipar volumes no veículo e liberar despacho', quantidade: 2, sla: '10:30', etapa: 'Conferência de carregamento', referenciaTipo: 'romaneio', referenciaId: 'ROM-3301' },
-  { id: 'OS-9701', tipo: 'cross-docking', prioridade: 'alta', operador: null, status: 'a-fazer', origem: 'STG-REC-01', destino: 'DOCA-SAI-04', sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', quantidade: 48, sla: '08:50', etapa: 'Triagem direta', referenciaTipo: 'recebimento', referenciaId: 'REC-2042' },
+  { id: 'OS-9701', tipo: 'cross-docking', prioridade: 'alta', operador: null, status: 'a-fazer', origem: 'STG-REC-01', destino: ADMIN_BUSINESS_DOCAS.mista04, sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', quantidade: 48, sla: '08:50', etapa: 'Triagem direta', referenciaTipo: 'recebimento', referenciaId: 'REC-2042' },
 ]
 
 export const ONDAS: Onda[] = [
@@ -1251,8 +1338,8 @@ export const COLETAS_TMS: ColetaTms[] = [
 ]
 
 export const CROSSDOCK = [
-  { id: 'XD-01', sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', recebimento: 'REC-2042', docaEntrada: 'Doca 01', docaSaida: 'DOCA-SAI-04', quantidade: 48, destino: 'CD Duque de Caxias', status: 'aguardando-triagem' },
-  { id: 'XD-02', sku: 'SKU-20055', descricao: 'Sérum Vitamina C 30ml', recebimento: 'REC-2040', docaEntrada: 'Doca 02', docaSaida: 'DOCA-SAI-02', quantidade: 60, destino: 'Loja Bella Centro', status: 'em-transito-interno' },
+  { id: 'XD-01', sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', recebimento: 'REC-2042', docaEntrada: ADMIN_BUSINESS_DOCAS.recebimento01, docaSaida: ADMIN_BUSINESS_DOCAS.mista04, quantidade: 48, destino: 'CD Duque de Caxias', status: 'aguardando-triagem' },
+  { id: 'XD-02', sku: 'SKU-20055', descricao: 'Sérum Vitamina C 30ml', recebimento: 'REC-2040', docaEntrada: ADMIN_BUSINESS_DOCAS.recebimento02, docaSaida: ADMIN_BUSINESS_DOCAS.expedicao03, quantidade: 60, destino: 'Loja Bella Centro', status: 'em-transito-interno' },
 ]
 
-export const ENDERECOS_SUGESTOES = ['B-04-12-3', 'A-12-04-1', 'C-08-01-1', 'D-01-01-1']
+export const ENDERECOS_SUGESTOES = [...ADMIN_BUSINESS_ENDERECOS_SUGESTOES]

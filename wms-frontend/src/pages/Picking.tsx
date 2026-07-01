@@ -53,29 +53,11 @@ const VIAGENS_TMS = COLETAS_TMS.map((coleta) => ({
 }))
 
 export default function Picking() {
-  const { tarefas, criarTarefa, toast } = useStore()
+  const { tarefas } = useStore()
   const [aba, setAba] = useState<AbaPicking>('geral')
   const [det, setDet] = useState<Onda | null>(null)
   const [viagemDet, setViagemDet] = useState<(typeof VIAGENS_TMS)[number] | null>(null)
   const osPicking = tarefas.filter((t) => t.tipo === 'picking')
-
-  const gerarOsViagem = (viagem: (typeof VIAGENS_TMS)[number]) => {
-    const id = criarTarefa({
-      tipo: 'picking',
-      prioridade: viagem.prioridade === 'alta' ? 'alta' : 'media',
-      operador: null,
-      origem: `Coleta ${viagem.id}`,
-      destino: 'PACK-01',
-      sku: viagem.viagemIdTms,
-      descricao: `Separação da coleta ${viagem.id} · ${viagem.rota}`,
-      quantidade: viagem.pedidos.length,
-      sla: viagem.cutOff,
-      etapa: 'Picking por coleta TMS',
-      referenciaTipo: 'onda',
-      referenciaId: viagem.id,
-    })
-    toast({ tipo: 'sucesso', titulo: 'OS criada a partir do TMS', texto: `${id} · ${viagem.rota} · corte ${viagem.cutOff}` })
-  }
 
   return (
     <div className="space-y-6">
@@ -133,9 +115,6 @@ export default function Picking() {
                 title="OS de picking"
                 subtitle="Crie tarefas de separação a partir de pedidos, ondas, viagens TMS ou exceções."
                 tipos={['picking', 'reabastecimento']}
-                defaultTipo="picking"
-                defaultOrigem="Endereço de picking"
-                defaultDestino="PACK-01"
               />
             </div>
           )}
@@ -236,9 +215,6 @@ export default function Picking() {
                           <td className="td">
                             <div className="flex items-center justify-end gap-1.5">
                               <button className="btn-outline py-1.5 px-2 text-xs" onClick={() => setViagemDet(viagem)}>Detalhes</button>
-                              <button className="btn-primary py-1.5 px-2 text-xs" onClick={() => gerarOsViagem(viagem)}>
-                                OS
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -352,9 +328,6 @@ export default function Picking() {
               <Detail label="Packing" value={`${viagemDet.progressoPacking}%`} mono />
               <Detail label="Carregamento" value={`${viagemDet.progressoCarregamento}%`} mono />
             </div>
-            <button className="btn-primary" onClick={() => gerarOsViagem(viagemDet)}>
-              <ClipboardList className="h-4 w-4" /> Gerar OS para operadores
-            </button>
           </div>
         )}
       </Modal>

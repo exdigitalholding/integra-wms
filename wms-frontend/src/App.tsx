@@ -16,8 +16,10 @@ import Inventario from './pages/Inventario'
 import Reabastecimento from './pages/Reabastecimento'
 import Picking from './pages/Picking'
 import Expedicao from './pages/Expedicao'
+import PerdasPrevencoes from './pages/PerdasPrevencoes'
 import Tarefas from './pages/Tarefas'
 import Coletor from './pages/Coletor'
+import Teste from './pages/Teste'
 import Ocorrencias from './pages/Ocorrencias'
 import Faturamento from './pages/Faturamento'
 import Relatorios from './pages/Relatorios'
@@ -61,8 +63,18 @@ export default function App() {
           <Route path="/reabastecimento" element={<Reabastecimento />} />
           <Route path="/picking" element={<Picking />} />
           <Route path="/expedicao" element={<Expedicao />} />
+          <Route path="/perdas-prevencoes" element={<Navigate to="/perdas-prevencoes/cockpit" replace />} />
+          <Route path="/perdas-prevencoes/cockpit" element={<PerdasPrevencoes abaInicial="cockpit" />} />
+          <Route path="/perdas-prevencoes/importacoes" element={<PerdasPrevencoes abaInicial="importacoes" />} />
+          <Route path="/perdas-prevencoes/casos" element={<PerdasPrevencoes abaInicial="casos" />} />
+          <Route path="/perdas-prevencoes/divergencias" element={<PerdasPrevencoes abaInicial="divergencias" />} />
+          <Route path="/perdas-prevencoes/financeiro" element={<PerdasPrevencoes abaInicial="financeiro" />} />
+          <Route path="/perdas-prevencoes/aprovacoes" element={<PerdasPrevencoes abaInicial="aprovacoes" />} />
+          <Route path="/perdas-prevencoes/relatorios" element={<PerdasPrevencoes abaInicial="relatorios" />} />
+          <Route path="/perdas-prevencoes/configuracoes" element={<PerdasPrevencoes abaInicial="configuracoes" />} />
           <Route path="/tarefas" element={<Tarefas />} />
           <Route path="/coletor" element={<Coletor />} />
+          <Route path="/teste" element={<Teste />} />
           <Route path="/ocorrencias" element={<Ocorrencias />} />
           <Route path="/faturamento" element={<Faturamento />} />
           <Route path="/relatorios" element={<Relatorios />} />

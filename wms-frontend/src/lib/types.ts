@@ -20,6 +20,12 @@ export interface Owner {
   cor: string
 }
 
+export interface EmpresaSku {
+  id: string
+  nome: string
+  cor: string
+}
+
 export interface CD {
   id: string
   nome: string
@@ -113,6 +119,7 @@ export interface SkuEtiquetagem {
 export interface SkuControle {
   id: string
   ownerId: string
+  empresaId: string
   codigo: string
   descricao: string
   tipo: TipoEmbalagemSku

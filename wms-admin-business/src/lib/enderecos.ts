@@ -30,7 +30,7 @@ export function parseRuas(input: string): string[] {
 export interface GeradorParams {
   armazemId: string
   zonaId: string | null
-  ruas: string[]
+  ruas: readonly string[]
   colunas: number
   niveis: number
   posicoes: number

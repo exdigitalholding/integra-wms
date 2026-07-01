@@ -2,11 +2,9 @@ import { useMemo, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
-  ClipboardList,
-  Plus,
   UserPlus,
 } from 'lucide-react'
-import { Badge, Modal } from './ui'
+import { Badge, Modal, SelectField } from './ui'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import { STATUS_TAREFA_LABEL, TIPO_TAREFA_LABEL } from '../lib/tarefaMeta'
@@ -39,27 +37,19 @@ export default function OrdemServicoPanel({
   subtitle = 'Crie, atribua e acompanhe a execução no app/coletor.',
   tipos,
   referenciaId,
-  defaultTipo,
-  defaultOrigem = '—',
-  defaultDestino = '—',
 }: {
   title?: string
   subtitle?: string
   tipos?: TipoTarefa[]
   referenciaId?: string
-  defaultTipo?: TipoTarefa
-  defaultOrigem?: string
-  defaultDestino?: string
 }) {
   const {
     tarefas,
-    criarTarefa,
     assumirTarefa,
     concluirTarefa,
     reportarProblemaTarefa,
     toast,
   } = useStore()
-  const [criando, setCriando] = useState(false)
   const [detalhe, setDetalhe] = useState<Tarefa | null>(null)
 
   const lista = useMemo(
@@ -72,12 +62,6 @@ export default function OrdemServicoPanel({
     [tarefas, tipos, referenciaId],
   )
 
-  const criar = (input: Omit<Tarefa, 'id' | 'status'> & { status?: Tarefa['status'] }) => {
-    const id = criarTarefa(input)
-    toast({ tipo: 'sucesso', titulo: 'OS criada', texto: `${id} enviada para a fila operacional` })
-    setCriando(false)
-  }
-
   return (
     <section className="card p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -85,9 +69,6 @@ export default function OrdemServicoPanel({
           <h2 className="text-base font-semibold text-brand">{title}</h2>
           <p className="text-sm text-ink-muted mt-0.5">{subtitle}</p>
         </div>
-        <button onClick={() => setCriando(true)} className="btn-primary">
-          <Plus className="h-4 w-4" /> Criar OS
-        </button>
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-4">
@@ -141,17 +122,6 @@ export default function OrdemServicoPanel({
         })}
       </div>
 
-      {criando && (
-        <CriarOsModal
-          tipos={tipos}
-          defaultTipo={defaultTipo ?? tipos?.[0] ?? 'putaway'}
-          defaultOrigem={defaultOrigem}
-          defaultDestino={defaultDestino}
-          onClose={() => setCriando(false)}
-          onCriar={criar}
-        />
-      )}
-
       {detalhe && (
         <DetalheOsModal
           tarefa={detalhe}
@@ -174,121 +144,6 @@ export default function OrdemServicoPanel({
         />
       )}
     </section>
-  )
-}
-
-function CriarOsModal({
-  tipos,
-  defaultTipo,
-  defaultOrigem,
-  defaultDestino,
-  onClose,
-  onCriar,
-}: {
-  tipos?: TipoTarefa[]
-  defaultTipo: TipoTarefa
-  defaultOrigem: string
-  defaultDestino: string
-  onClose: () => void
-  onCriar: (input: Omit<Tarefa, 'id' | 'status'> & { status?: Tarefa['status'] }) => void
-}) {
-  const [tipo, setTipo] = useState<TipoTarefa>(defaultTipo)
-  const [descricao, setDescricao] = useState('')
-  const [operador, setOperador] = useState('')
-  const [prioridade, setPrioridade] = useState<Tarefa['prioridade']>('media')
-  const [origem, setOrigem] = useState(defaultOrigem)
-  const [destino, setDestino] = useState(defaultDestino)
-  const [sku, setSku] = useState('')
-  const [quantidade, setQuantidade] = useState('1')
-  const [sla, setSla] = useState('')
-
-  const opcoesTipo = tipos ?? (Object.keys(TIPO_TAREFA_LABEL) as TipoTarefa[])
-  const podeCriar = descricao.trim() !== ''
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="lg"
-      title="Criar ordem de serviço"
-      subtitle="A OS aparece na fila do supervisor e no app do operador quando atribuída."
-      footer={
-        <>
-          <button onClick={onClose} className="btn-outline">Cancelar</button>
-          <button
-            disabled={!podeCriar}
-            onClick={() =>
-              onCriar({
-                tipo,
-                prioridade,
-                operador: operador || null,
-                origem,
-                destino,
-                sku: sku || '—',
-                descricao,
-                quantidade: Number(quantidade || 0),
-                sla: sla || undefined,
-                etapa: TIPO_TAREFA_LABEL[tipo],
-                referenciaTipo: 'manual',
-                referenciaId: 'manual',
-                status: operador ? 'fazendo' : 'a-fazer',
-              })
-            }
-            className="btn-primary"
-          >
-            <ClipboardList className="h-4 w-4" /> Criar OS
-          </button>
-        </>
-      }
-    >
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label className="label">Tipo</label>
-          <select value={tipo} onChange={(event) => setTipo(event.target.value as TipoTarefa)} className="input">
-            {opcoesTipo.map((item) => <option key={item} value={item}>{TIPO_TAREFA_LABEL[item]}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="label">Prioridade</label>
-          <select value={prioridade} onChange={(event) => setPrioridade(event.target.value as Tarefa['prioridade'])} className="input">
-            <option value="alta">Alta</option>
-            <option value="media">Média</option>
-            <option value="baixa">Baixa</option>
-          </select>
-        </div>
-        <div className="md:col-span-2">
-          <label className="label">Descrição da OS</label>
-          <input value={descricao} onChange={(event) => setDescricao(event.target.value)} className="input" placeholder="Ex.: Conferir saída do PED-77120 no PACK-01" />
-        </div>
-        <div>
-          <label className="label">Operador</label>
-          <select value={operador} onChange={(event) => setOperador(event.target.value)} className="input">
-            <option value="">Sem operador</option>
-            {operadores.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="label">SLA</label>
-          <input value={sla} onChange={(event) => setSla(event.target.value)} className="input mono" placeholder="10:30" />
-        </div>
-        <div>
-          <label className="label">Origem</label>
-          <input value={origem} onChange={(event) => setOrigem(event.target.value)} className="input mono" />
-        </div>
-        <div>
-          <label className="label">Destino</label>
-          <input value={destino} onChange={(event) => setDestino(event.target.value)} className="input mono" />
-        </div>
-        <div>
-          <label className="label">SKU / Documento</label>
-          <input value={sku} onChange={(event) => setSku(event.target.value)} className="input mono" placeholder="SKU, pedido, NF-e ou romaneio" />
-        </div>
-        <div>
-          <label className="label">Quantidade</label>
-          <input type="number" value={quantidade} onChange={(event) => setQuantidade(event.target.value)} className="input mono" />
-        </div>
-      </div>
-    </Modal>
   )
 }
 
@@ -348,9 +203,11 @@ function DetalheOsModal({
         <div>
           <label className="label">Operador vinculado</label>
           <div className="flex gap-2">
-            <select value={operador} onChange={(event) => setOperador(event.target.value)} className="input">
-              {operadores.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
+            <SelectField
+              value={operador}
+              onChange={setOperador}
+              options={operadores.map((item) => ({ value: item, label: item }))}
+            />
             <button onClick={() => onAtribuir(operador)} className="btn-outline shrink-0">
               <UserPlus className="h-4 w-4" /> Atribuir
             </button>

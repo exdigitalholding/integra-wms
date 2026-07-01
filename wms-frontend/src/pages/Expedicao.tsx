@@ -1,503 +1,461 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
-  Box,
-  Printer,
-  Truck,
-  ClipboardList,
-  CheckCircle2,
-  Scale,
-  ScanLine,
-  Clock,
-  MapPin,
   AlertTriangle,
+  Boxes,
+  Camera,
+  CheckCircle2,
+  ClipboardList,
+  LockKeyhole,
+  MapPin,
   PackageCheck,
+  ScanLine,
   Send,
+  ShieldCheck,
+  Truck,
+  XCircle,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
-import { COLETAS_TMS, ownerName } from '../lib/mock'
-import { Badge, Modal, PageHeader, Progress, Tab, Tabs, type Tone } from '../components/ui'
-import OrdemServicoPanel from '../components/OrdemServicoPanel'
-import { cn } from '../lib/utils'
-import type { ColetaTms, Pedido, StatusColetaTms } from '../lib/types'
+import { Badge, PageHeader, Progress, Tab, Tabs, type Tone } from '../components/ui'
+import {
+  CARGAS_EXPEDICAO,
+  DEMO_EXPEDITION_MOBILE_EVENTS,
+  MARGEM_CUBAGEM_EXPEDICAO,
+  criarRequisicaoBipagemExpedicao,
+  avaliarChecklistEmbarque,
+  avaliarConferenciaExpedicao,
+  calcularResumoCargaExpedicao,
+  type CargaExpedicao,
+  type CondicaoVeiculo,
+  type StatusCargaExpedicao,
+  type VolumeExpedicao,
+} from '../lib/expedicaoWorkflow'
 
-const statusMeta: Record<Pedido['status'], { l: string; tone: Tone }> = {
-  aguardando: { l: 'Aguardando', tone: 'neutral' },
-  'em-separacao': { l: 'Em separação', tone: 'primary' },
-  'em-packing': { l: 'Em packing', tone: 'info' },
-  expedido: { l: 'Expedido', tone: 'ok' },
+type AbaExpedicao = 'ordem' | 'conferencia' | 'checklist' | 'historico'
+
+const statusMeta: Record<StatusCargaExpedicao, { label: string; tone: Tone }> = {
+  'montagem-aprovada': { label: 'Montagem aprovada', tone: 'info' },
+  'anexada-destino': { label: 'Anexada ao destino', tone: 'primary' },
+  reservada: { label: 'Reservada', tone: 'info' },
+  conferencia: { label: 'Conferencia', tone: 'warn' },
+  'pronta-expedicao': { label: 'Pronta para expedicao', tone: 'ok' },
+  carregando: { label: 'Carregando', tone: 'primary' },
+  'viagem-liberada': { label: 'Viagem liberada', tone: 'ok' },
+  bloqueada: { label: 'Bloqueada', tone: 'bad' },
 }
 
-const coletaStatusMeta: Record<StatusColetaTms, { l: string; tone: Tone }> = {
-  recebida: { l: 'Recebida do TMS', tone: 'info' },
-  validando: { l: 'Validando reserva', tone: 'warn' },
-  'em-separacao': { l: 'Em separação', tone: 'primary' },
-  'em-packing': { l: 'Em packing', tone: 'info' },
-  'pronta-doca': { l: 'Pronta na doca', tone: 'ok' },
-  carregando: { l: 'Carregando', tone: 'primary' },
-  despachada: { l: 'Despachada', tone: 'ok' },
-  risco: { l: 'Em risco', tone: 'bad' },
-}
+const groupByCte = (volumes: VolumeExpedicao[]) =>
+  volumes.reduce<Record<string, VolumeExpedicao[]>>((groups, volume) => {
+    groups[volume.cte] = [...(groups[volume.cte] ?? []), volume]
+    return groups
+  }, {})
 
-const riscoTone: Record<ColetaTms['risco'], Tone> = {
-  baixo: 'ok',
-  medio: 'warn',
-  alto: 'bad',
-}
+const initialBipados = CARGAS_EXPEDICAO.reduce<Record<string, boolean>>((acc, carga) => {
+  carga.volumes.forEach((volume) => {
+    acc[volume.id] = volume.bipado
+  })
+  return acc
+}, {})
 
 export default function Expedicao() {
-  const { pedidos, romaneios, conferirVolume, expedirPedido, toast } = useStore()
-  const [aba, setAba] = useState('coletas')
-  const [pack, setPack] = useState<string | null>(null)
-  const [coletaDet, setColetaDet] = useState<ColetaTms | null>(null)
-  const pedido = pedidos.find((p) => p.id === pack) ?? null
+  const { toast } = useStore()
+  const [aba, setAba] = useState<AbaExpedicao>('ordem')
+  const [cargaId, setCargaId] = useState(CARGAS_EXPEDICAO[0]?.id ?? '')
+  const [bipados, setBipados] = useState<Record<string, boolean>>(initialBipados)
+  const [condicaoVeiculo, setCondicaoVeiculo] = useState<CondicaoVeiculo>('ok')
+  const [fotoRegistrada, setFotoRegistrada] = useState(true)
+
+  const carga = useMemo<CargaExpedicao>(() => {
+    const cargaBase = CARGAS_EXPEDICAO.find((item) => item.id === cargaId) ?? CARGAS_EXPEDICAO[0]
+    return {
+      ...cargaBase,
+      volumes: cargaBase.volumes.map((volume) => ({
+        ...volume,
+        bipado: bipados[volume.id] ?? volume.bipado,
+      })),
+    }
+  }, [bipados, cargaId])
+
+  const resumo = useMemo(
+    () => calcularResumoCargaExpedicao(carga.volumes, carga),
+    [carga],
+  )
+  const conferencia = useMemo(() => avaliarConferenciaExpedicao(carga.volumes), [carga.volumes])
+  const checklist = useMemo(
+    () =>
+      avaliarChecklistEmbarque({
+        placa: carga.placa,
+        motorista: carga.motorista,
+        horario: carga.horario,
+        destino: carga.destino,
+        carga: carga.id,
+        condicaoVeiculo,
+        fotoRegistrada,
+      }),
+    [carga, condicaoVeiculo, fotoRegistrada],
+  )
+
+  const biparVolume = (volume: VolumeExpedicao) => {
+    const evento = criarRequisicaoBipagemExpedicao({
+      cargaId: carga.id,
+      tarefaId: carga.tarefaConferenciaId,
+      volumeId: volume.id,
+      operadorId: 'usr-1',
+      deviceId: 'dev-1',
+      resultado: 'ok',
+      timestamp: new Date().toISOString(),
+    })
+    setBipados((atual) => ({ ...atual, [volume.id]: true }))
+    toast({ tipo: 'sucesso', titulo: 'Evento recebido do APP', texto: `${evento.eventType} · ${volume.id}` })
+  }
+
+  const finalizarChecklist = () => {
+    toast({
+      tipo: checklist.proximaAcao === 'disparar-frotas' ? 'aviso' : 'sucesso',
+      titulo: checklist.status === 'recusado' ? 'Veiculo recusado' : 'Checklist finalizado',
+      texto: checklist.mensagem,
+    })
+  }
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Packing & Expedição (Outbound)"
-        subtitle="Coletas TMS, packing, volumes rastreáveis, romaneio, doca e conferência de carregamento."
-      />
+        title="Expedicao"
+        subtitle="Ordem de separacao, conferencia individual por volume, checklist de embarque e liberacao da viagem."
+      >
+        <Badge tone={conferencia.status === 'conferida' ? 'ok' : 'warn'} dot>
+          {conferencia.volumesBipados}/{resumo.totalVolumes} volumes bipados
+        </Badge>
+      </PageHeader>
 
-      <OrdemServicoPanel
-        title="OS de packing, romaneio e carregamento"
-        subtitle="Crie ordens para conferência de saída, cubagem, etiqueta, montagem de romaneio e bipagem final no veículo."
-        tipos={['packing', 'carregamento']}
-        defaultTipo={aba === 'romaneio' || aba === 'coletas' ? 'carregamento' : 'packing'}
-        defaultOrigem={aba === 'romaneio' || aba === 'coletas' ? 'ROM-3301' : 'PACK-01'}
-        defaultDestino={aba === 'romaneio' || aba === 'coletas' ? 'Veículo / doca' : 'Romaneio'}
-      />
+      <div className="rounded-xl border border-info/20 bg-info-50 px-4 py-3 text-sm text-info">
+        Montagem aprovada: quando o pallet sai da montagem, o proprio WMS anexa a carga ao destino operacional
+        correto. Se for cross-docking, ela entra nesta expedicao; se for enderecamento, segue para putaway.
+        A cubagem ja aparece com 20% de margem.
+      </div>
 
-      <div className="card overflow-hidden">
-        <div className="px-4 pt-1">
-          <Tabs value={aba} onChange={setAba}>
-            <Tab id="coletas">Coletas TMS de hoje</Tab>
-            <Tab id="packing">Estações de packing</Tab>
-            <Tab id="romaneio">Romaneios & carregamento</Tab>
-          </Tabs>
-        </div>
-
-        {aba === 'coletas' && (
-          <div className="p-4 space-y-4">
-            <div className="grid gap-3 md:grid-cols-4">
-              {[
-                ['Coletas abertas', COLETAS_TMS.filter((c) => c.status !== 'despachada').length],
-                ['Em risco', COLETAS_TMS.filter((c) => c.risco === 'alto').length],
-                ['Volumes prontos', COLETAS_TMS.reduce((s, c) => s + c.volumesProntos, 0)],
-                ['A carregar', COLETAS_TMS.reduce((s, c) => s + Math.max(0, c.volumesPrevistos - c.volumesProntos), 0)],
-              ].map(([label, value]) => (
-                <div key={label as string} className="rounded-xl border border-line bg-surface-sub p-4">
-                  <p className="text-xs text-ink-muted">{label}</p>
-                  <p className="mt-1 text-3xl font-semibold text-brand mono">{value}</p>
+      <section className="grid gap-4 xl:grid-cols-[320px_1fr]">
+        <aside className="space-y-3">
+          {CARGAS_EXPEDICAO.map((item) => {
+            const itemResumo = calcularResumoCargaExpedicao(item.volumes, item)
+            const meta = statusMeta[item.status]
+            const active = item.id === carga.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => setCargaId(item.id)}
+                className={`w-full rounded-xl border p-4 text-left transition ${
+                  active ? 'border-primary bg-primary-50/40' : 'border-line bg-surface hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="mono text-sm font-semibold text-brand">{item.id}</p>
+                    <p className="mt-1 text-sm text-ink-soft">{item.destino}</p>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {item.origem.montagemId} · {item.destinoOperacional}
+                    </p>
+                  </div>
+                  <Badge tone={meta.tone}>{meta.label}</Badge>
                 </div>
-              ))}
-            </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <TinyStat label="CTE" value={itemResumo.totalCtes} />
+                  <TinyStat label="Vol" value={itemResumo.totalVolumes} />
+                  <TinyStat label="m3" value={itemResumo.cubagemReservadaM3} />
+                </div>
+              </button>
+            )
+          })}
+        </aside>
 
-            <div className="grid xl:grid-cols-3 gap-4">
-              {COLETAS_TMS.map((coleta) => {
-                const status = coletaStatusMeta[coleta.status]
-                return (
-                  <div key={coleta.id} className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="mono text-sm font-semibold text-brand">{coleta.id}</p>
-                        <p className="mt-1 text-sm font-medium text-ink-soft truncate">{coleta.transportadora} · {coleta.rota}</p>
-                      </div>
-                      <Badge tone={status.tone} dot>{status.l}</Badge>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                      <MiniInfo icon={<Clock className="h-4 w-4" />} label="Janela" value={coleta.janelaColeta} />
-                      <MiniInfo icon={<MapPin className="h-4 w-4" />} label="Doca" value={coleta.doca} />
-                      <MiniInfo icon={<Truck className="h-4 w-4" />} label="Veículo" value={coleta.placa} />
-                      <MiniInfo icon={<PackageCheck className="h-4 w-4" />} label="Volumes" value={`${coleta.volumesProntos}/${coleta.volumesPrevistos}`} />
-                    </div>
-
-                    <div className="mt-4 space-y-2">
-                      <ProcessBar label="Picking" value={coleta.progressoPicking} />
-                      <ProcessBar label="Packing" value={coleta.progressoPacking} />
-                      <ProcessBar label="Carregamento" value={coleta.progressoCarregamento} />
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <Badge tone={riscoTone[coleta.risco]}>
-                        {coleta.risco === 'alto' ? 'Ação agora' : coleta.risco === 'medio' ? 'Acompanhar' : 'No prazo'}
-                      </Badge>
-                      <div className="flex gap-2">
-                        <button className="btn-outline py-2 px-3 text-xs" onClick={() => setColetaDet(coleta)}>
-                          Detalhes
-                        </button>
-                        <button
-                          className="btn-primary py-2 px-3 text-xs"
-                          onClick={() =>
-                            toast({
-                              tipo: 'info',
-                              titulo: 'OS de carregamento preparada',
-                              texto: `${coleta.id} · ${coleta.doca} · veículo ${coleta.placa}`,
-                            })
-                          }
-                        >
-                          <Send className="h-3.5 w-3.5" /> Acionar
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+        <div className="card overflow-hidden">
+          <div className="border-b border-line px-5 py-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold text-brand mono">{carga.id}</h2>
+                  <Badge tone={statusMeta[carga.status].tone} dot>{statusMeta[carga.status].label}</Badge>
+                  <Badge tone="primary">
+                    <LockKeyhole className="h-3.5 w-3.5" /> Carga reservada
+                  </Badge>
+                  <Badge tone={carga.destinoOperacional === 'cross-docking' ? 'warn' : 'info'}>
+                    {carga.destinoOperacional}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-ink-muted">
+                  Montagem aprovada {carga.origem.montagemId} · A4 {carga.origem.palletA4Id} · {carga.transportadora} · {carga.doca}
+                </p>
+              </div>
             </div>
           </div>
-        )}
 
-        {aba === 'packing' && (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className="th">Pedido</th>
-                  <th className="th">Cliente</th>
-                  <th className="th">Transportadora</th>
-                  <th className="th">Coleta</th>
-                  <th className="th">Reserva</th>
-                  <th className="th">Volumes / Peso</th>
-                  <th className="th">Conferência</th>
-                  <th className="th">Status</th>
-                  <th className="th"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {pedidos.map((p) => {
-                  const conf = p.itens.reduce((s, i) => s + i.conferido, 0)
-                  const tot = p.itens.reduce((s, i) => s + i.quantidade, 0)
-                  return (
-                    <tr key={p.id} className="row-hover">
-                      <td className="td mono font-medium text-brand">{p.id}</td>
-                      <td className="td">
-                        <div>{p.cliente}</div>
-                        <div className="text-xs text-ink-muted">{ownerName(p.ownerId)}</div>
-                      </td>
-                      <td className="td">{p.transportadora}</td>
-                      <td className="td mono text-xs">{p.coletaId ?? '—'}</td>
-                      <td className="td">
-                        <Badge tone={p.reservaStatus === 'reservado' ? 'ok' : p.reservaStatus === 'parcial' ? 'warn' : 'neutral'}>
-                          {p.reservaStatus === 'reservado' ? 'Reservado' : p.reservaStatus === 'parcial' ? 'Parcial' : 'Pendente'}
-                        </Badge>
-                      </td>
-                      <td className="td mono text-xs">{p.volumes} vol · {p.peso} kg</td>
-                      <td className="td w-40">
-                        <div className="flex items-center gap-2">
-                          <Progress value={(conf / tot) * 100} tone={conf === tot ? 'ok' : 'primary'} />
-                          <span className="mono text-xs text-ink-soft">{conf}/{tot}</span>
-                        </div>
-                      </td>
-                      <td className="td"><Badge tone={statusMeta[p.status].tone}>{statusMeta[p.status].l}</Badge></td>
-                      <td className="td text-right">
-                        <button
-                          onClick={() => setPack(p.id)}
-                          disabled={p.status === 'expedido'}
-                          className="btn-outline py-1.5 px-3 text-xs"
-                        >
-                          {p.status === 'expedido' ? 'Expedido' : 'Packing'}
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          <div className="px-4 pt-1">
+            <Tabs value={aba} onChange={(value) => setAba(value as AbaExpedicao)}>
+              <Tab id="ordem">Carga</Tab>
+              <Tab id="conferencia">Conferencia por volume</Tab>
+              <Tab id="checklist">Checklist embarque</Tab>
+              <Tab id="historico">Rastreabilidade</Tab>
+            </Tabs>
           </div>
-        )}
 
-        {aba === 'romaneio' && (
-          <div className="p-4 grid md:grid-cols-2 gap-4">
-            {romaneios.map((r) => {
-              const carregados = r.volumes.filter((v) => v.carregado).length
-              return (
-                <div key={r.id} className="rounded-2xl border border-line p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="h-9 w-9 rounded-xl bg-info-50 text-info grid place-items-center"><Truck className="h-4 w-4" /></div>
-                      <div>
-                        <p className="font-medium text-brand mono">{r.id}</p>
-                        <p className="text-xs text-ink-muted">{r.transportadora} · {r.rota}</p>
-                      </div>
+          <div className="p-5">
+            {aba === 'ordem' && (
+              <div className="space-y-5">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <Metric icon={<PackageCheck className="h-5 w-5" />} label="Volumes" value={resumo.totalVolumes} />
+                  <Metric icon={<Boxes className="h-5 w-5" />} label="Pallets" value={resumo.totalPallets} />
+                  <Metric icon={<ClipboardList className="h-5 w-5" />} label="CTEs" value={resumo.totalCtes} />
+                  <Metric icon={<Truck className="h-5 w-5" />} label="m3 reservado" value={resumo.cubagemReservadaM3} />
+                  <Metric icon={<ShieldCheck className="h-5 w-5" />} label="20% de margem" value={`${MARGEM_CUBAGEM_EXPEDICAO * 100}%`} />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-4">
+                  <OriginDetail label="Origem WMS" value="Montagem aprovada" />
+                  <OriginDetail label="Montagem" value={carga.origem.montagemId} mono />
+                  <OriginDetail label="Recebimento" value={carga.origem.recebimentoId} mono />
+                  <OriginDetail label="Anexado em" value={new Date(carga.origem.anexadoEm).toLocaleString('pt-BR')} />
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+                  <div className="rounded-xl border border-line overflow-hidden">
+                    <table className="w-full min-w-[760px]">
+                      <thead>
+                        <tr>
+                          <th className="th">CTE</th>
+                          <th className="th">Volume</th>
+                          <th className="th">Pallet</th>
+                          <th className="th">Staging</th>
+                          <th className="th text-right">m3</th>
+                          <th className="th text-right">Kg</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(groupByCte(carga.volumes)).flatMap(([cte, volumes]) =>
+                          volumes.map((volume) => (
+                            <tr key={volume.id} className="row-hover">
+                              <td className="td mono font-semibold text-brand">{cte}</td>
+                              <td className="td">
+                                <p className="mono text-brand">{volume.id}</p>
+                                <p className="text-xs text-ink-muted">{volume.descricao}</p>
+                              </td>
+                              <td className="td mono">{volume.palletId}</td>
+                              <td className="td mono">{volume.staging}</td>
+                              <td className="td text-right mono">{volume.cubagemM3.toFixed(2)}</td>
+                              <td className="td text-right mono">{volume.pesoKg.toFixed(1)}</td>
+                            </tr>
+                          )),
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="rounded-xl border border-line bg-surface-sub p-4">
+                    <p className="text-sm font-semibold text-brand">Compatibilidade do veiculo</p>
+                    <div className="mt-4 space-y-4">
+                      <Occupancy label="Cubagem com margem" value={resumo.ocupacaoM3Percentual} ok={resumo.cabeNoVeiculo} />
+                      <Occupancy label="Peso" value={resumo.ocupacaoKgPercentual} ok={resumo.ocupacaoKgPercentual <= 100} />
                     </div>
-                    <Badge tone={r.status === 'despachado' ? 'ok' : r.status === 'em-carregamento' ? 'primary' : 'neutral'} dot>
-                      {r.status === 'montando' ? 'Montando' : r.status === 'em-carregamento' ? 'Carregando' : 'Despachado'}
-                    </Badge>
+                    <div className="mt-4 rounded-lg bg-surface p-3 text-sm">
+                      <p className="text-ink-muted">Espaco livre depois da margem</p>
+                      <p className="mt-1 text-2xl font-semibold text-brand mono">{resumo.espacoLivreM3.toFixed(2)} m3</p>
+                    </div>
+                    <p className="mt-3 text-xs text-ink-muted">
+                      A carga compativel e definida pelo WMS no fechamento da montagem e anexada ao destino correto.
+                    </p>
                   </div>
-                  <p className="text-xs text-ink-muted mt-2 mono">{r.veiculo}</p>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <MiniInfo icon={<MapPin className="h-4 w-4" />} label="Doca" value={r.doca ?? '—'} />
-                    <MiniInfo icon={<Clock className="h-4 w-4" />} label="Janela" value={r.janela ?? '—'} />
-                    <MiniInfo icon={<Truck className="h-4 w-4" />} label="Placa" value={r.placa ?? '—'} />
+                </div>
+              </div>
+            )}
+
+            {aba === 'conferencia' && (
+              <div className="space-y-4">
+                <div className={`rounded-xl border p-4 ${conferencia.status === 'conferida' ? 'border-ok/30 bg-ok-50' : 'border-warn/30 bg-warn-50'}`}>
+                  <div className="flex items-start gap-3">
+                    {conferencia.status === 'conferida' ? <CheckCircle2 className="h-5 w-5 text-ok" /> : <AlertTriangle className="h-5 w-5 text-warn" />}
+                    <div>
+                      <p className="font-semibold text-brand">
+                        {conferencia.status === 'conferida' ? 'Itens e quantidade de acordo' : 'Divergencia na conferencia'}
+                      </p>
+                      <p className="mt-1 text-sm text-ink-soft">{conferencia.mensagem}</p>
+                    </div>
                   </div>
-                  <div className="mt-3 space-y-1.5">
-                    {r.volumes.map((v) => (
-                      <div key={v.pedido} className="flex items-center gap-2 rounded-lg bg-surface-sub px-3 py-2 text-sm">
-                        {v.carregado ? <CheckCircle2 className="h-4 w-4 text-ok" /> : <Box className="h-4 w-4 text-ink-muted" />}
-                        <div className="min-w-0">
-                          <p className="mono text-xs text-brand">{v.codigoVolume ?? v.pedido}</p>
-                          <p className="text-ink-muted text-xs truncate">{v.pedido} · {v.volumes} vol · {v.peso} kg · {v.staging}</p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {carga.volumes.map((volume) => (
+                    <div key={volume.id} className="rounded-xl border border-line bg-surface p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="mono font-semibold text-brand">{volume.id}</p>
+                          <p className="mt-1 text-sm text-ink-soft">{volume.descricao}</p>
+                          <p className="mt-1 text-xs text-ink-muted">{volume.cte} · {volume.palletId}</p>
                         </div>
-                        <span className="flex-1" />
-                        {v.carregado ? <span className="text-xs text-ok">carregado</span> : <span className="text-xs text-ink-muted">a carregar</span>}
+                        {volume.bipado ? <Badge tone="ok">Bipado</Badge> : <Badge tone="warn">Pendente</Badge>}
+                      </div>
+                      {volume.divergencia && (
+                        <div className="mt-3 rounded-lg bg-bad-50 px-3 py-2 text-xs text-bad">
+                          {volume.divergencia}
+                        </div>
+                      )}
+                      <button
+                        className="btn-outline mt-4 w-full py-2 text-sm"
+                        disabled={volume.bipado}
+                        onClick={() => biparVolume(volume)}
+                      >
+                        <ScanLine className="h-4 w-4" /> Bipar volume
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {aba === 'checklist' && (
+              <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+                <div className="rounded-xl border border-line overflow-hidden">
+                  <table className="w-full">
+                    <tbody>
+                      <ChecklistRow label="Placa" value={carga.placa} icon={<Truck className="h-4 w-4" />} />
+                      <ChecklistRow label="Motorista" value={carga.motorista} icon={<ShieldCheck className="h-4 w-4" />} />
+                      <ChecklistRow label="Horario" value={carga.horario} icon={<ClipboardList className="h-4 w-4" />} />
+                      <ChecklistRow label="Destino" value={carga.destino} icon={<MapPin className="h-4 w-4" />} />
+                      <ChecklistRow label="Carga" value={`${carga.id} / ${carga.romaneioId}`} icon={<PackageCheck className="h-4 w-4" />} />
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="rounded-xl border border-line bg-surface-sub p-4">
+                  <p className="text-sm font-semibold text-brand">Condicao do veiculo + foto</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      className={`btn-outline py-2 ${condicaoVeiculo === 'ok' ? 'border-ok bg-ok-50 text-ok' : ''}`}
+                      onClick={() => setCondicaoVeiculo('ok')}
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Veiculo ok
+                    </button>
+                    <button
+                      className={`btn-outline py-2 ${condicaoVeiculo === 'recusado' ? 'border-bad bg-bad-50 text-bad' : ''}`}
+                      onClick={() => setCondicaoVeiculo('recusado')}
+                    >
+                      <XCircle className="h-4 w-4" /> Veiculo recusado
+                    </button>
+                  </div>
+                  <button
+                    className={`btn-outline mt-3 w-full py-2 ${fotoRegistrada ? 'border-info bg-info-50 text-info' : ''}`}
+                    onClick={() => setFotoRegistrada((value) => !value)}
+                  >
+                    <Camera className="h-4 w-4" /> {fotoRegistrada ? 'Foto registrada' : 'Registrar foto'}
+                  </button>
+
+                  <div className={`mt-4 rounded-xl border p-3 text-sm ${checklist.status === 'recusado' ? 'border-bad/30 bg-bad-50 text-bad' : checklist.status === 'aprovado' ? 'border-ok/30 bg-ok-50 text-ok' : 'border-warn/30 bg-warn-50 text-warn'}`}>
+                    <p className="font-semibold">
+                      {checklist.status === 'recusado' ? 'Foi disparado para o frotas na parte de contratacao' : checklist.mensagem}
+                    </p>
+                    {checklist.status === 'recusado' && (
+                      <p className="mt-1">
+                        Prioridade maxima porque a viagem ja esta agendada, a carga foi separada e conferida, so falta o caminhao.
+                      </p>
+                    )}
+                  </div>
+
+                  <button className="btn-primary mt-4 w-full" onClick={finalizarChecklist}>
+                    <Send className="h-4 w-4" /> Finalizar checklist
+                  </button>
+                  <p className="mt-3 text-xs text-ink-muted">
+                    A execucao operacional deste checklist entra no wms-mobile; aqui fica o espelho para teste desktop.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {aba === 'historico' && (
+              <div className="space-y-3">
+                {[
+                  ['Montagem aprovada', 'O WMS fecha a montagem do pallet, calcula CTE, volumes, pallets e m3.'],
+                  ['Anexo ao destino', 'Ao sair da montagem, a carga segue para enderecamento ou cross-docking conforme o fluxo definido no WMS.'],
+                  ['Reserva', 'Ao entrar em expedicao, os volumes ficam reservados para impedir movimentacao por outro operador.'],
+                  ['Separacao', 'Operador recebe a ordem de separacao e leva os volumes ao staging de expedicao.'],
+                  ['Conferencia', 'Mesmo com etiqueta de pallet, cada volume precisa ser bipado individualmente.'],
+                  ['Embarque', 'Veiculo ok libera viagem; veiculo recusado aciona frotas como prioridade maxima.'],
+                ].map(([title, text], index) => (
+                  <div key={title} className="flex gap-3 rounded-xl border border-line bg-surface px-4 py-3">
+                    <div className="h-8 w-8 shrink-0 rounded-lg bg-primary-50 text-primary grid place-items-center mono text-xs font-semibold">
+                      {index + 1}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-brand">{title}</p>
+                      <p className="mt-0.5 text-sm text-ink-muted">{text}</p>
+                    </div>
+                  </div>
+                ))}
+                <div className="rounded-xl border border-line bg-surface p-4">
+                  <p className="text-sm font-semibold text-brand">Eventos recebidos do APP</p>
+                  <div className="mt-3 space-y-2">
+                    {DEMO_EXPEDITION_MOBILE_EVENTS.filter((evento) => evento.objectId === carga.id).map((evento) => (
+                      <div key={evento.id} className="rounded-lg bg-surface-sub px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="mono font-semibold text-brand">{evento.eventType}</span>
+                          <Badge tone="info">{String(evento.payload?.syncStatus ?? 'SYNC_PENDING')}</Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-ink-muted">{evento.message}</p>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-xs text-ink-muted">
-                    <span>Conferência de carregamento (docking)</span>
-                    <span className="mono">{carregados}/{r.volumes.length}</span>
-                  </div>
-                  <button
-                    className="btn-outline w-full mt-2 py-2 text-sm"
-                    onClick={() =>
-                      toast({
-                        tipo: 'info',
-                        titulo: 'Conferência de carregamento iniciada',
-                        texto: `${r.id} aberto para bipagem final de volumes no veículo.`,
-                      })
-                    }
-                  >
-                    <ScanLine className="h-4 w-4" /> Bipar volumes no veículo
-                  </button>
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {pedido && (
-        <PackingModal
-          pedido={pedido}
-          onConferir={(sku) => conferirVolume(pedido.id, sku)}
-          onClose={() => setPack(null)}
-          onExpedir={() => {
-            expedirPedido(pedido.id)
-            toast({ tipo: 'sucesso', titulo: 'Pedido expedido', texto: `${pedido.id} · etiqueta ${pedido.transportadora} gerada` })
-            setPack(null)
-          }}
-        />
-      )}
-
-      {coletaDet && (
-        <Modal
-          open
-          onClose={() => setColetaDet(null)}
-          title={`Coleta ${coletaDet.id}`}
-          subtitle={`${coletaDet.viagemIdTms} · ${coletaDet.transportadora} · ${coletaDet.rota}`}
-          size="lg"
-          footer={
-            <>
-              <button className="btn-outline" onClick={() => setColetaDet(null)}>Fechar</button>
-              <button
-                className="btn-primary"
-                onClick={() =>
-                  toast({
-                    tipo: 'info',
-                    titulo: 'Operação acionada',
-                    texto: `Supervisor deve acompanhar ${coletaDet.romaneioId} na doca ${coletaDet.doca}.`,
-                  })
-                }
-              >
-                <ScanLine className="h-4 w-4" /> Abrir carregamento
-              </button>
-            </>
-          }
-        >
-          <div className="space-y-4">
-            <div className="rounded-xl border border-line bg-surface-sub p-4">
-              <p className="text-sm font-semibold text-brand">Mensagem recebida do TMS</p>
-              <p className="mt-1 text-sm text-ink-soft">{coletaDet.ultimaMensagemTms}</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-4">
-              <Detail label="Cotação" value={coletaDet.cotacaoId} mono />
-              <Detail label="Onda" value={coletaDet.ondaId} mono />
-              <Detail label="Romaneio" value={coletaDet.romaneioId} mono />
-              <Detail label="Cut-off" value={coletaDet.cutOff} mono />
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <ActionTile icon={<ClipboardList className="h-5 w-5" />} title="1. Validar reserva" text="Confere se todos os pedidos possuem saldo reservado antes de liberar a onda." />
-              <ActionTile icon={<PackageCheck className="h-5 w-5" />} title="2. Fechar volumes" text="Packing cria volume rastreável, peso, cubagem, etiqueta e staging." />
-              <ActionTile icon={<Truck className="h-5 w-5" />} title="3. Carregar veículo" text="Operador bipa doca, placa, volume e lacre no mobile." />
-            </div>
-            {coletaDet.risco === 'alto' && (
-              <div className="rounded-xl border border-bad/20 bg-bad-50 p-3 text-sm text-bad flex gap-2">
-                <AlertTriangle className="h-5 w-5 shrink-0" />
-                <span>Risco alto: resolva reserva parcial ou ajuste de onda antes do horário de corte.</span>
               </div>
             )}
           </div>
-        </Modal>
-      )}
+        </div>
+      </section>
     </div>
   )
 }
 
-function PackingModal({
-  pedido,
-  onConferir,
-  onClose,
-  onExpedir,
-}: {
-  pedido: Pedido
-  onConferir: (sku: string) => void
-  onClose: () => void
-  onExpedir: () => void
-}) {
-  const [step, setStep] = useState(0)
-  const conf = pedido.itens.reduce((s, i) => s + i.conferido, 0)
-  const tot = pedido.itens.reduce((s, i) => s + i.quantidade, 0)
-  const tudoConf = conf === tot
-  const steps = ['Conferência de saída', 'Cubagem & embalagem', 'Etiqueta & romaneio']
-
+function TinyStat({ label, value }: { label: string; value: string | number }) {
   return (
-    <Modal
-      open
-      onClose={onClose}
-      size="md"
-      title={`Packing · ${pedido.id}`}
-      subtitle={`${pedido.cliente} · ${pedido.transportadora}`}
-      footer={
-        step < 2 ? (
-          <>
-            <button onClick={onClose} className="btn-outline">Fechar</button>
-            <button onClick={() => setStep((s) => s + 1)} disabled={step === 0 && !tudoConf} className="btn-primary">
-              Avançar
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={onClose} className="btn-outline">Fechar</button>
-            <button onClick={onExpedir} className="btn-primary"><Truck className="h-4 w-4" /> Despachar</button>
-          </>
-        )
-      }
-    >
-      {/* stepper */}
-      <div className="flex items-center gap-2 mb-5">
-        {steps.map((s, i) => (
-          <div key={s} className="flex items-center gap-2 flex-1">
-            <div className={cn('h-7 w-7 rounded-full grid place-items-center text-xs font-semibold shrink-0', i <= step ? 'bg-primary text-white' : 'bg-slate-100 text-ink-muted')}>
-              {i < step ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
-            </div>
-            <span className={cn('text-xs font-medium hidden sm:block', i <= step ? 'text-brand' : 'text-ink-muted')}>{s}</span>
-            {i < steps.length - 1 && <div className={cn('h-px flex-1', i < step ? 'bg-primary' : 'bg-line')} />}
-          </div>
-        ))}
-      </div>
-
-      {step === 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-ink-muted mb-2">Re-bipe cada item — última barreira contra erro de envio.</p>
-          {pedido.itens.map((i) => {
-            const done = i.conferido >= i.quantidade
-            return (
-              <div key={i.skuCodigo} className={cn('flex items-center gap-3 rounded-xl border p-3', done ? 'border-ok/40 bg-ok-50' : 'border-line')}>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-brand">{i.descricao}</p>
-                  <p className="text-xs text-ink-muted mono">{i.skuCodigo}</p>
-                </div>
-                <span className="mono text-sm text-ink-soft">{i.conferido}/{i.quantidade}</span>
-                {done ? (
-                  <CheckCircle2 className="h-5 w-5 text-ok" />
-                ) : (
-                  <button onClick={() => onConferir(i.skuCodigo)} className="btn-primary py-1.5 px-3 text-xs"><ScanLine className="h-3.5 w-3.5" /> Bipar</button>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {step === 1 && (
-        <div className="space-y-4 animate-fade-in">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-surface-sub p-4 text-center">
-              <Scale className="h-5 w-5 text-primary mx-auto" />
-              <div className="text-2xl font-semibold text-brand mono mt-2">{pedido.peso} kg</div>
-              <div className="text-xs text-ink-muted">Peso aferido</div>
-            </div>
-            <div className="rounded-xl bg-surface-sub p-4 text-center">
-              <Box className="h-5 w-5 text-primary mx-auto" />
-              <div className="text-2xl font-semibold text-brand mono mt-2">22×16×10</div>
-              <div className="text-xs text-ink-muted">Cubagem (cm)</div>
-            </div>
-          </div>
-          <div className="rounded-xl border border-line p-3">
-            <p className="label">Embalagem sugerida pelo sistema</p>
-            <div className="flex items-center gap-2 text-sm"><Box className="h-4 w-4 text-primary" /> Caixa P (até 2 kg) — melhor cubagem para os itens</div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Detail label="Staging" value="STG-EXP-03" mono />
-            <Detail label="Lacre" value={`LCR-${pedido.id.replace('PED-', '')}`} mono />
-          </div>
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="space-y-3 animate-fade-in">
-          <div className="rounded-xl border-2 border-dashed border-primary/30 bg-primary-50/30 p-4 text-center">
-            <Printer className="h-6 w-6 text-primary mx-auto" />
-            <p className="text-sm font-medium text-brand mt-2">Etiqueta {pedido.transportadora}</p>
-            <p className="mono text-xs text-ink-muted mt-1">VOL-{pedido.id.replace('PED-', '')}-1 · {pedido.rota}</p>
-            <div className="mt-2 mx-auto h-10 w-48 flex items-end gap-px justify-center">
-              {Array.from({ length: 48 }).map((_, i) => (
-                <span key={i} className="bg-brand" style={{ width: 2, height: `${30 + ((i * 7) % 70)}%` }} />
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 rounded-xl bg-surface-sub p-3 text-sm text-ink-soft">
-            <ClipboardList className="h-4 w-4 text-ink-muted" /> Agrupado no romaneio <span className="mono">ROM-3301</span> · rota {pedido.rota}
-          </div>
-          <div className="rounded-xl border border-line p-3 text-sm text-ink-soft">
-            <p className="font-medium text-brand">Próximo passo para o operador</p>
-            <p className="mt-1">Levar volume para <span className="mono">STG-EXP-03</span>. No carregamento, o mobile vai pedir doca, placa, volume e lacre.</p>
-          </div>
-        </div>
-      )}
-    </Modal>
+    <div className="rounded-lg bg-surface px-2 py-2">
+      <p className="text-[10px] uppercase text-ink-muted">{label}</p>
+      <p className="mono text-sm font-semibold text-brand">{value}</p>
+    </div>
   )
 }
 
-function ProcessBar({ label, value }: { label: string; value: number }) {
+function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface-sub p-4">
+      <div className="text-primary">{icon}</div>
+      <p className="mt-3 text-xs text-ink-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-brand mono">{value}</p>
+    </div>
+  )
+}
+
+function OriginDetail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface-sub p-3">
+      <p className="text-[11px] uppercase tracking-wide text-ink-muted">{label}</p>
+      <p className={`mt-1 text-sm font-semibold text-brand ${mono ? 'mono' : ''}`}>{value}</p>
+    </div>
+  )
+}
+
+function Occupancy({ label, value, ok }: { label: string; value: number; ok: boolean }) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between text-xs">
         <span className="text-ink-muted">{label}</span>
-        <span className="mono font-semibold text-brand">{value}%</span>
+        <span className="mono font-semibold text-brand">{value.toFixed(1)}%</span>
       </div>
-      <Progress value={value} tone={value === 100 ? 'ok' : value > 0 ? 'primary' : 'neutral'} />
+      <Progress value={value} tone={ok ? 'ok' : 'bad'} />
     </div>
   )
 }
 
-function MiniInfo({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function ChecklistRow({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
-    <div className="rounded-lg border border-line bg-surface-sub px-3 py-2">
-      <div className="flex items-center gap-1.5 text-[11px] text-ink-muted">
-        <span>{icon}</span>
-        <span>{label}</span>
-      </div>
-      <p className="mt-0.5 text-xs font-semibold text-brand mono truncate">{value}</p>
-    </div>
-  )
-}
-
-function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-xl border border-line bg-surface px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className={cn('mt-0.5 text-sm font-semibold text-brand', mono && 'mono')}>{value}</p>
-    </div>
-  )
-}
-
-function ActionTile({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
-  return (
-    <div className="rounded-xl border border-line bg-surface p-4">
-      <div className="h-10 w-10 rounded-xl bg-primary-50 text-primary grid place-items-center">{icon}</div>
-      <p className="mt-3 text-sm font-semibold text-brand">{title}</p>
-      <p className="mt-1 text-sm text-ink-muted">{text}</p>
-    </div>
+    <tr className="row-hover">
+      <td className="td w-12 text-primary">{icon}</td>
+      <td className="td text-ink-muted">{label}</td>
+      <td className="td text-right font-semibold text-brand mono">{value}</td>
+    </tr>
   )
 }

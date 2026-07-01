@@ -9,6 +9,16 @@ export const ETAPA_CLASSIFICACAO_DESTINO_ENDERECAMENTO = 'Classificação de des
 
 const normalizarSku = (codigo: string) => codigo.trim().toUpperCase()
 
+export const EMPRESA_TODAS_SKU = 'emp-todas'
+
+export function filtrarSkusControlePorEmpresa(
+  skusControle: SkuControle[],
+  empresaId: string,
+) {
+  if (!empresaId || empresaId === EMPRESA_TODAS_SKU) return skusControle
+  return skusControle.filter((sku) => sku.empresaId === empresaId)
+}
+
 export function recebimentoLiberadoParaPutaway(recebimento: Pick<Recebimento, 'ordemExecucaoAtual'>) {
   return (recebimento.ordemExecucaoAtual ?? 0) >= ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO
 }

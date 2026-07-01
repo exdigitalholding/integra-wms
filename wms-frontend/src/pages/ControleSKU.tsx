@@ -9,9 +9,21 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import { Badge, EmptyState, PageHeader, type Tone } from '../components/ui'
-import { ownerColor, ownerName, OWNERS } from '../lib/mock'
-import { skusPendentesRecebimentos } from '../lib/skuControle'
+import { Badge, EmptyState, PageHeader, SelectField, type Tone } from '../components/ui'
+import {
+  empresaSkuColor,
+  empresaSkuIdPorOwner,
+  empresaSkuName,
+  EMPRESAS_SKU,
+  ownerColor,
+  ownerName,
+  OWNERS,
+} from '../lib/mock'
+import {
+  EMPRESA_TODAS_SKU,
+  filtrarSkusControlePorEmpresa,
+  skusPendentesRecebimentos,
+} from '../lib/skuControle'
 import { cn, num } from '../lib/utils'
 import { useStore } from '../store/useStore'
 import type {
@@ -33,6 +45,7 @@ const filtrosTipo: { id: TipoEmbalagemSku | 'todos'; label: string }[] = [
 ]
 
 const ownersSku = OWNERS.filter((owner) => owner.id !== 'own-all')
+const empresasSkuCadastro = EMPRESAS_SKU.filter((empresa) => empresa.id !== EMPRESA_TODAS_SKU)
 
 const cubagem = (input: Pick<SkuControleInput, 'comprimentoCm' | 'larguraCm' | 'alturaCm'>) =>
   Number(((input.comprimentoCm * input.larguraCm * input.alturaCm) / 1_000_000).toFixed(6))
@@ -51,6 +64,9 @@ const fmtDateTime = (iso: string) =>
 
 const novoDraft = (perfilOwnerId: string, perfil: string): SkuControleInput => ({
   ownerId: perfil === '3pl' && perfilOwnerId !== 'own-all' ? perfilOwnerId : 'own-nano',
+  empresaId: empresaSkuIdPorOwner(
+    perfil === '3pl' && perfilOwnerId !== 'own-all' ? perfilOwnerId : 'own-nano',
+  ),
   codigo: '',
   descricao: '',
   tipo: 'unidade',
@@ -64,6 +80,7 @@ const novoDraft = (perfilOwnerId: string, perfil: string): SkuControleInput => (
 
 const toInput = (sku: SkuControle): SkuControleInput => ({
   ownerId: sku.ownerId,
+  empresaId: sku.empresaId,
   codigo: sku.codigo,
   descricao: sku.descricao,
   tipo: sku.tipo,
@@ -88,6 +105,7 @@ export default function ControleSKU() {
   } = useStore()
   const [busca, setBusca] = useState('')
   const [tipoFiltro, setTipoFiltro] = useState<TipoEmbalagemSku | 'todos'>('todos')
+  const [empresaFiltro, setEmpresaFiltro] = useState(EMPRESA_TODAS_SKU)
   const [editingId, setEditingId] = useState<string | 'novo' | null>(null)
   const [draft, setDraft] = useState<SkuControleInput | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(skusControle[0]?.id ?? null)
@@ -97,6 +115,10 @@ export default function ControleSKU() {
     const q = busca.trim().toLowerCase()
     return pendencias.filter((pendencia) => {
       if (perfil === '3pl' && ownerId !== 'own-all' && pendencia.ownerId !== ownerId) return false
+      if (
+        empresaFiltro !== EMPRESA_TODAS_SKU &&
+        empresaSkuIdPorOwner(pendencia.ownerId) !== empresaFiltro
+      ) return false
       if (tipoFiltro === 'caixa-matriz') return false
       if (!q) return true
       const alvo = [
@@ -106,15 +128,16 @@ export default function ControleSKU() {
         pendencia.doca,
         pendencia.documento,
         pendencia.fornecedor,
+        empresaSkuName(empresaSkuIdPorOwner(pendencia.ownerId)),
         ownerName(pendencia.ownerId),
       ].join(' ').toLowerCase()
       return alvo.includes(q)
     })
-  }, [busca, ownerId, perfil, recebimentos, skusControle, tipoFiltro])
+  }, [busca, empresaFiltro, ownerId, perfil, recebimentos, skusControle, tipoFiltro])
 
   const lista = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    return skusControle.filter((sku) => {
+    return filtrarSkusControlePorEmpresa(skusControle, empresaFiltro).filter((sku) => {
       if (perfil === '3pl' && ownerId !== 'own-all' && sku.ownerId !== ownerId) return false
       if (tipoFiltro !== 'todos' && sku.tipo !== tipoFiltro) return false
       return (
@@ -122,10 +145,11 @@ export default function ControleSKU() {
         sku.codigo.toLowerCase().includes(q) ||
         sku.descricao.toLowerCase().includes(q) ||
         (sku.skuUnidadeConteudo ?? '').toLowerCase().includes(q) ||
+        empresaSkuName(sku.empresaId).toLowerCase().includes(q) ||
         ownerName(sku.ownerId).toLowerCase().includes(q)
       )
     })
-  }, [busca, ownerId, perfil, skusControle, tipoFiltro])
+  }, [busca, empresaFiltro, ownerId, perfil, skusControle, tipoFiltro])
 
   const selectedSku = selectedId ? skusControle.find((sku) => sku.id === selectedId) : null
   const historico = useMemo(() => {
@@ -143,7 +167,8 @@ export default function ControleSKU() {
     skusControle.filter(
       (sku) =>
         sku.tipo === 'unidade' &&
-        sku.ownerId === input.ownerId &&
+        sku.empresaId === input.empresaId &&
+        sku.empresaId === input.empresaId &&
         sku.codigo !== input.codigo.trim().toUpperCase(),
     )
 
@@ -195,6 +220,19 @@ export default function ControleSKU() {
       return { ...proximo, cubagemM3: cubagem(proximo) }
     })
 
+  const alterarEmpresa = (nextEmpresaId: string) =>
+    setDraft((atual) => {
+      if (!atual) return atual
+      const proximo = { ...atual, empresaId: nextEmpresaId }
+      if (
+        proximo.tipo === 'caixa-matriz' &&
+        !unidadesParaDraft(proximo).some((sku) => sku.codigo === proximo.skuUnidadeConteudo)
+      ) {
+        proximo.skuUnidadeConteudo = unidadesParaDraft(proximo)[0]?.codigo ?? null
+      }
+      return { ...proximo, cubagemM3: cubagem(proximo) }
+    })
+
   const iniciarNovo = () => {
     setEditingId('novo')
     setSelectedId(null)
@@ -207,6 +245,7 @@ export default function ControleSKU() {
     setDraft({
       ...novoDraft(pendencia.ownerId, perfil),
       ownerId: pendencia.ownerId,
+      empresaId: empresaSkuIdPorOwner(pendencia.ownerId),
       codigo: pendencia.skuCodigo,
       descricao: pendencia.descricao,
     })
@@ -247,17 +286,21 @@ export default function ControleSKU() {
         sku.ownerId === input.ownerId &&
         sku.codigo.toUpperCase() === input.codigo,
     )
-    if (duplicado) return 'Já existe um cadastro com este código de SKU para este owner.'
+    if (duplicado) return 'Ja existe um cadastro com este codigo de SKU para esta empresa.'
     if (input.comprimentoCm <= 0 || input.larguraCm <= 0 || input.alturaCm <= 0) {
       return 'Informe comprimento, largura e altura maiores que zero.'
     }
     if (input.tipo === 'caixa-matriz') {
       if (!input.skuUnidadeConteudo) return 'Selecione qual SKU unidade existe dentro da caixa matriz.'
       const unidade = skusControle.find(
-        (sku) => sku.codigo === input.skuUnidadeConteudo && sku.tipo === 'unidade',
+        (sku) =>
+          sku.codigo === input.skuUnidadeConteudo &&
+          sku.tipo === 'unidade' &&
+          sku.empresaId === input.empresaId,
       )
       if (!unidade) return 'A caixa matriz precisa apontar para um SKU unidade cadastrado.'
       if (unidade.ownerId !== input.ownerId) return 'A caixa matriz e o SKU unidade devem ser do mesmo owner.'
+      if (unidade.empresaId !== input.empresaId) return 'A caixa matriz e o SKU unidade devem ser da mesma empresa.'
       if ((input.unidadesPorCaixa ?? 0) < 2) return 'Caixa matriz precisa ter pelo menos 2 unidades.'
       if (input.skuUnidadeConteudo === input.codigo) return 'A caixa matriz não pode conter ela mesma.'
     }
@@ -323,29 +366,27 @@ export default function ControleSKU() {
           />
         </td>
         <td className="td align-top">
-          <select
+          <SelectField
             value={draft.tipo}
-            onChange={(e) => alterarTipo(e.target.value as TipoEmbalagemSku)}
+            onChange={(value) => alterarTipo(value as TipoEmbalagemSku)}
             className="w-36 rounded-lg border border-line bg-white px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-          >
-            <option value="unidade">Unidade</option>
-            <option value="caixa-matriz">Caixa matriz</option>
-          </select>
+            options={[
+              { value: 'unidade', label: 'Unidade' },
+              { value: 'caixa-matriz', label: 'Caixa matriz' },
+            ]}
+          />
         </td>
         <td className="td align-top">
           {draft.tipo === 'caixa-matriz' ? (
-            <select
+            <SelectField
               value={draft.skuUnidadeConteudo ?? ''}
-              onChange={(e) => patchDraft({ skuUnidadeConteudo: e.target.value || null })}
+              onChange={(value) => patchDraft({ skuUnidadeConteudo: value || null })}
               className="w-40 rounded-lg border border-line bg-white px-2 py-1.5 text-xs mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-            >
-              <option value="">Selecione</option>
-              {unidades.map((sku) => (
-                <option key={sku.id} value={sku.codigo}>
-                  {sku.codigo}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'Selecione' },
+                ...unidades.map((sku) => ({ value: sku.codigo, label: sku.codigo })),
+              ]}
+            />
           ) : (
             <span className="text-xs text-ink-muted">—</span>
           )}
@@ -381,19 +422,22 @@ export default function ControleSKU() {
           </div>
         </td>
         <td className="td align-top mono text-brand">{formatCubagem(draft.cubagemM3)}</td>
+        <td className="td align-top">
+          <SelectField
+            value={draft.empresaId}
+            onChange={alterarEmpresa}
+            className="w-44 rounded-lg border border-line bg-white px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+            options={empresasSkuCadastro.map((empresa) => ({ value: empresa.id, label: empresa.nome }))}
+          />
+        </td>
         {perfil === '3pl' && (
           <td className="td align-top">
-            <select
+            <SelectField
               value={draft.ownerId}
-              onChange={(e) => alterarOwner(e.target.value)}
+              onChange={alterarOwner}
               className="w-40 rounded-lg border border-line bg-white px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-            >
-              {ownersSku.map((owner) => (
-                <option key={owner.id} value={owner.id}>
-                  {owner.nome}
-                </option>
-              ))}
-            </select>
+              options={ownersSku.map((owner) => ({ value: owner.id, label: owner.nome }))}
+            />
           </td>
         )}
         <td className="td align-top text-xs text-ink-muted">Editando</td>
@@ -456,6 +500,15 @@ export default function ControleSKU() {
       </td>
       <td className="td align-top">
         <Badge tone="bad">Bloqueia recebimento</Badge>
+      </td>
+      <td className="td align-top">
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ background: empresaSkuColor(empresaSkuIdPorOwner(pendencia.ownerId)) }}
+          />
+          <span className="text-xs">{empresaSkuName(empresaSkuIdPorOwner(pendencia.ownerId))}</span>
+        </span>
       </td>
       {perfil === '3pl' && (
         <td className="td align-top">
@@ -525,10 +578,16 @@ export default function ControleSKU() {
               <input
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar SKU, descrição, owner ou SKU conteúdo…"
+                placeholder="Buscar SKU, descricao, empresa, owner ou SKU conteudo..."
                 className="bg-transparent outline-none flex-1 text-sm"
               />
             </div>
+            <SelectField
+              value={empresaFiltro}
+              onChange={setEmpresaFiltro}
+              className="lg:w-52 rounded-xl border border-line bg-surface-sub px-3 py-2 text-sm"
+              options={EMPRESAS_SKU.map((empresa) => ({ value: empresa.id, label: empresa.nome }))}
+            />
             <div className="flex items-center gap-1.5 overflow-x-auto">
               {filtrosTipo.map((filtro) => (
                 <button
@@ -549,7 +608,7 @@ export default function ControleSKU() {
 
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px]">
+              <table className="w-full min-w-[1320px]">
                 <thead>
                   <tr>
                     <th className="th">SKU</th>
@@ -559,6 +618,7 @@ export default function ControleSKU() {
                     <th className="th">Un/Caixa</th>
                     <th className="th">C x L x A (cm)</th>
                     <th className="th">Cubagem</th>
+                    <th className="th">Empresa</th>
                     {perfil === '3pl' && <th className="th">Owner</th>}
                     <th className="th">Última alteração</th>
                     <th className="th text-right">Ações</th>
@@ -596,6 +656,15 @@ export default function ControleSKU() {
                           {sku.comprimentoCm} x {sku.larguraCm} x {sku.alturaCm}
                         </td>
                         <td className="td mono font-medium text-brand">{formatCubagem(sku.cubagemM3)}</td>
+                        <td className="td">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ background: empresaSkuColor(sku.empresaId) }}
+                            />
+                            <span className="text-xs">{empresaSkuName(sku.empresaId)}</span>
+                          </span>
+                        </td>
                         {perfil === '3pl' && (
                           <td className="td">
                             <span className="inline-flex items-center gap-1.5">

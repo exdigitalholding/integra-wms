@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import type { BarcodeScanningResult } from 'expo-camera';
 import { Screen } from '../components/Screen';
 import { TopBar } from '../components/TopBar';
 import { BigButton } from '../components/BigButton';
@@ -11,7 +13,11 @@ import { colors, radius, shadow, spacing, type } from '../theme/theme';
 import { FLUXOS, OPERATIONAL_CHECKLISTS, TAREFAS, UNIDADES } from '../data/mock';
 import type { ChecklistAnswerValue, ChecklistBlockContext, IoniconName, OperationalChecklistQuestion, RecebimentoChecklistContext, Tarefa } from '../types';
 import { useNav } from '../navigation/router';
+import { useSession } from '../navigation/session';
 import { erro, sucesso, tapLeve } from '../lib/haptics';
+import { criarRequisicaoBipagemExpedicao } from '../../../wms-shared-demo/expedicao.ts';
+import { criarEventoBipagemRecebimento, validarCodigoBipado } from '../../../wms-shared-demo/recebimento.ts';
+import type { DemoOperationalEvent } from '../../../wms-shared-demo/types.ts';
 
 type ChecklistAnswerState = Record<string, { value?: ChecklistAnswerValue; photo?: boolean; observation?: string }>;
 type ReceivingCargoCondition = 'YES' | 'NO';
@@ -49,8 +55,10 @@ const RECEIVING_CHECKLIST_INITIAL: ReceivingChecklistState = {
  */
 export function FlowScreen() {
   const { route, navigate, back, replace, resetStack } = useNav();
+  const { operador } = useSession();
   const tarefa = useMemo(() => TAREFAS.find((t) => t.id === route.params?.tarefaId)!, [route.params]);
   const meta = FLUXOS[tarefa.fluxo];
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const [idx, setIdx] = useState(0);
   const [valor, setValor] = useState('');
@@ -62,6 +70,8 @@ export function FlowScreen() {
   const [checklistErro, setChecklistErro] = useState('');
   const [blockedContext, setBlockedContext] = useState<ChecklistBlockContext | null>(null);
   const [receivingChecklist, setReceivingChecklist] = useState<ReceivingChecklistState>(RECEIVING_CHECKLIST_INITIAL);
+  const [ultimoEventoMobile, setUltimoEventoMobile] = useState<DemoOperationalEvent | null>(null);
+  const [scannerAberto, setScannerAberto] = useState(false);
   // Contagem mista de inventário: caixas fechadas + unidades soltas.
   const [caixas, setCaixas] = useState('');
   const [soltas, setSoltas] = useState('');
@@ -73,7 +83,11 @@ export function FlowScreen() {
   const ehConfirmar = passo.tipo === 'confirmar';
   const ehChecklistGate =
     passo.tipo === 'scan' &&
-    (passo.rotulo.toLowerCase().includes('produto') || passo.rotulo.toLowerCase().includes('volume'));
+    (
+      (tarefa.fluxo === 'receber' && passo.rotulo.toLowerCase().includes('doca')) ||
+      (tarefa.fluxo !== 'receber' &&
+        (passo.rotulo.toLowerCase().includes('produto') || passo.rotulo.toLowerCase().includes('volume')))
+    );
 
   // --- Unidade de manuseio: operador conta caixa/palete; sistema grava na base. ---
   const um = UNIDADES[passo.unidade ?? 'un'];
@@ -113,19 +127,75 @@ export function FlowScreen() {
     avancarPasso();
   };
 
-  /** Bipagem (scan). Para o demo, "BIPAR" entrega o código certo. */
-  const bipar = () => {
-    setValor(passo.esperado);
-    setTimeout(avancar, 180);
+  const registrarBipagemExpedicao = () => {
+    if (!tarefa.expedicao || !passo.rotulo.toLowerCase().includes('volume')) return null;
+
+    return criarRequisicaoBipagemExpedicao({
+      cargaId: tarefa.expedicao.cargaId,
+      tarefaId: tarefa.id,
+      volumeId: passo.esperado,
+      operadorId: operador?.id ?? 'usr-1',
+      deviceId: 'dev-1',
+      resultado: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  const registrarBipagemRecebimento = (codigoLido: string) => {
+    if (!tarefa.recebimento || passo.tipo !== 'scan') return null;
+
+    return criarEventoBipagemRecebimento({
+      recebimentoId: tarefa.recebimento.id,
+      tarefaId: tarefa.id,
+      passoRotulo: passo.rotulo,
+      codigoEsperado: passo.esperado,
+      codigoLido,
+      operadorId: operador?.id ?? 'usr-1',
+      deviceId: 'dev-1',
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  const registrarEventoMobile = (codigoLido: string) => {
+    const eventoRecebimento = registrarBipagemRecebimento(codigoLido);
+    if (eventoRecebimento) {
+      setUltimoEventoMobile(eventoRecebimento);
+      return eventoRecebimento.payload?.resultado === 'ok';
+    }
+
+    const eventoExpedicao = registrarBipagemExpedicao();
+    if (eventoExpedicao) setUltimoEventoMobile(eventoExpedicao);
+    return validarCodigoBipado(passo.esperado, codigoLido);
+  };
+
+  const processarCodigoBipado = (codigoLido: string) => {
+    const codigo = codigoLido.trim();
+    if (!codigo) return;
+
+    const correto = registrarEventoMobile(codigo);
+    setValor(codigo);
+
+    if (correto) {
+      setErrado(false);
+      setScannerAberto(false);
+      setTimeout(avancar, 180);
+    } else {
+      erro();
+      setErrado(true);
+    }
+  };
+
+  const abrirScanner = async () => {
+    if (!cameraPermission?.granted) {
+      const result = await requestCameraPermission();
+      if (!result.granted) return;
+    }
+    setScannerAberto(true);
   };
 
   /** Confirmação de valor digitado (scan manual). */
   const confirmarDigitado = () => {
-    if (valor.trim().toUpperCase() === passo.esperado.toUpperCase()) avancar();
-    else {
-      erro();
-      setErrado(true);
-    }
+    processarCodigoBipado(valor);
   };
 
   /** Quantidade: confirma o número informado (count pode divergir — o sistema registra). */
@@ -456,6 +526,18 @@ export function FlowScreen() {
           {passo.dica ? <Text style={styles.dica}>{passo.dica}</Text> : null}
         </View>
 
+        {ultimoEventoMobile ? (
+          <View style={styles.syncBox}>
+            <Ionicons name="cloud-upload" size={20} color={colors.info} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.syncTitle}>Requisicao enviada para o WEB</Text>
+              <Text style={styles.syncText}>
+                {ultimoEventoMobile.eventType} Â· {String(ultimoEventoMobile.payload?.codigoLido ?? ultimoEventoMobile.payload?.volumeId ?? ultimoEventoMobile.objectId)} Â· {String(ultimoEventoMobile.payload?.syncStatus)}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {errado && (
           <View style={styles.erroBox}>
             <Ionicons name="close-circle" size={20} color={colors.bad} />
@@ -503,11 +585,19 @@ export function FlowScreen() {
           </View>
         ) : (
           <View style={styles.acao}>
-            <BigButton label="BIPAR" icon="scan" variant="primary" onPress={bipar} />
+            <BigButton label="Abrir camera" icon="scan" variant="primary" onPress={abrirScanner} />
             <ManualEntry valor={valor} setValor={(v) => { setValor(v); setErrado(false); }} onConfirm={confirmarDigitado} />
           </View>
         )}
       </ScrollView>
+
+      <ScannerCamera
+        open={scannerAberto}
+        expected={passo.esperado}
+        label={passo.rotulo}
+        onClose={() => setScannerAberto(false)}
+        onScanned={processarCodigoBipado}
+      />
     </Screen>
   );
 }
@@ -678,6 +768,59 @@ function ReceivingArrivalChecklist({
         />
       </View>
     </Screen>
+  );
+}
+
+function ScannerCamera({
+  open,
+  expected,
+  label,
+  onClose,
+  onScanned,
+}: {
+  open: boolean;
+  expected: string;
+  label: string;
+  onClose: () => void;
+  onScanned: (code: string) => void;
+}) {
+  const [locked, setLocked] = useState(false);
+
+  const handleBarcodeScanned = ({ data }: BarcodeScanningResult) => {
+    if (locked || !data) return;
+    setLocked(true);
+    onScanned(data);
+    setTimeout(() => setLocked(false), 700);
+  };
+
+  return (
+    <Modal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <View style={styles.scannerScreen}>
+        <CameraView
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          barcodeScannerSettings={{
+            barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'itf14', 'upc_a', 'upc_e'],
+          }}
+          onBarcodeScanned={locked ? undefined : handleBarcodeScanned}
+        />
+        <View style={styles.scannerShade}>
+          <View style={styles.scannerTop}>
+            <Pressable onPress={onClose} style={styles.scannerClose} accessibilityRole="button" accessibilityLabel="Fechar camera">
+              <Ionicons name="close" size={28} color="#fff" />
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.scannerTitle}>Bipar {label}</Text>
+              <Text style={styles.scannerExpected}>{expected}</Text>
+            </View>
+          </View>
+          <View style={styles.scanFrame}>
+            <View style={styles.scanFrameLine} />
+          </View>
+          <Text style={styles.scannerHint}>Aponte para codigo de barras, QR ou etiqueta SSCC.</Text>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -1010,6 +1153,9 @@ const styles = StyleSheet.create({
 
   erroBox: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
   erroTxt: { color: colors.bad, fontWeight: '800', fontSize: type.body },
+  syncBox: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: '#C9D8FF', backgroundColor: colors.infoSoft, padding: spacing.md },
+  syncTitle: { color: colors.info, fontSize: type.label, fontWeight: '900', textTransform: 'uppercase' },
+  syncText: { color: colors.inkSoft, fontSize: type.caption, fontWeight: '800', marginTop: 2 },
 
   acao: { width: '100%', gap: spacing.md, marginTop: spacing.xl },
   acaoQtd: { width: '100%', gap: spacing.lg, marginTop: spacing.xl },
@@ -1018,6 +1164,15 @@ const styles = StyleSheet.create({
   manualTxt: { color: colors.inkSoft, fontWeight: '700', fontSize: type.label },
   manualBox: { width: '100%', gap: spacing.md },
   input: { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.brand, borderRadius: radius.lg, paddingHorizontal: spacing.lg, height: 64, fontSize: type.title, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  scannerScreen: { flex: 1, backgroundColor: '#000' },
+  scannerShade: { flex: 1, padding: spacing.xl, backgroundColor: 'rgba(0,0,0,0.28)', justifyContent: 'space-between' },
+  scannerTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.lg },
+  scannerClose: { height: 52, width: 52, borderRadius: radius.pill, backgroundColor: 'rgba(0,0,0,0.42)', alignItems: 'center', justifyContent: 'center' },
+  scannerTitle: { color: '#fff', fontSize: type.title, fontWeight: '900' },
+  scannerExpected: { color: 'rgba(255,255,255,0.78)', fontSize: type.body, fontWeight: '800', marginTop: 2 },
+  scanFrame: { alignSelf: 'center', width: '88%', aspectRatio: 1.22, borderRadius: radius.lg, borderWidth: 3, borderColor: '#fff', justifyContent: 'center', overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.04)' },
+  scanFrameLine: { height: 3, width: '100%', backgroundColor: colors.ok },
+  scannerHint: { color: '#fff', fontSize: type.body, fontWeight: '800', textAlign: 'center', marginBottom: spacing.xl },
 
   // Saída de emergência — vermelho forte e sempre visível no cabeçalho, fora do caminho do botão Confirmar.
   problemaPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.bad, borderRadius: radius.pill, paddingVertical: 8, paddingHorizontal: spacing.md, borderWidth: 1.5, borderColor: '#fff', ...shadow.card },

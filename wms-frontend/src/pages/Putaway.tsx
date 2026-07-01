@@ -8,7 +8,6 @@ import {
   Lightbulb,
   MapPin,
   PackageOpen,
-  Plus,
   RefreshCw,
   Repeat2,
   Search,
@@ -23,16 +22,17 @@ import {
   tarefaPutawayLiberada,
 } from '../lib/skuControle'
 import { cn } from '../lib/utils'
+import { ADMIN_BUSINESS_DOCAS, ADMIN_BUSINESS_PUTAWAY, sugerirEnderecoPutaway } from '../lib/adminBusinessLocations'
 import type { ItemRecebimento, Recebimento, Tarefa } from '../lib/types'
 
 type AbaPutaway = 'piso' | 'os' | 'recorrentes'
 type StatusPallet = 'sem-os' | 'parcial' | 'em-execucao' | 'guardado' | 'problema'
 
 const REGRAS_RECORRENTES_INICIAIS = [
-  { id: 'REG-01', sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', ownerId: 'own-verde', origem: 'Doca 01', destino: 'C-08-01-1', ativo: true, regra: 'FEFO + alimentos' },
-  { id: 'REG-02', sku: 'SKU-20056', descricao: 'Base Líquida Tom 02', ownerId: 'own-bella', origem: 'Doca 06', destino: 'B-05-02-2', ativo: true, regra: 'Cosméticos em picking B' },
-  { id: 'REG-03', sku: 'SKU-10241', descricao: 'Fone Bluetooth Pulse X', ownerId: 'own-nano', origem: 'Doca 03', destino: 'A-12-03-2', ativo: true, regra: 'Curva A perto do packing' },
-  { id: 'REG-04', sku: 'MP-7781', descricao: 'Resina PET grau A', ownerId: 'own-forte', origem: 'Doca 05', destino: 'D-01-01-1', ativo: false, regra: 'Qualidade antes de estoque' },
+  { id: 'REG-01', sku: 'SKU-30011', descricao: 'Azeite Extra Virgem 500ml', ownerId: 'own-verde', origem: ADMIN_BUSINESS_DOCAS.recebimento01, destino: ADMIN_BUSINESS_PUTAWAY.verdePrincipal, ativo: true, regra: 'FEFO + alimentos' },
+  { id: 'REG-02', sku: 'SKU-20056', descricao: 'Base Líquida Tom 02', ownerId: 'own-bella', origem: ADMIN_BUSINESS_DOCAS.recebimento02, destino: ADMIN_BUSINESS_PUTAWAY.bellaSecundario, ativo: true, regra: 'Cosméticos em picking B' },
+  { id: 'REG-03', sku: 'SKU-10241', descricao: 'Fone Bluetooth Pulse X', ownerId: 'own-nano', origem: ADMIN_BUSINESS_DOCAS.expedicao03, destino: ADMIN_BUSINESS_PUTAWAY.nanoPrincipal, ativo: true, regra: 'Curva A perto do packing' },
+  { id: 'REG-04', sku: 'MP-7781', descricao: 'Resina PET grau A', ownerId: 'own-forte', origem: ADMIN_BUSINESS_DOCAS.mista04, destino: ADMIN_BUSINESS_PUTAWAY.excecaoQualidade, ativo: false, regra: 'Qualidade antes de estoque' },
 ]
 
 type RegraRecorrente = (typeof REGRAS_RECORRENTES_INICIAIS)[number]
@@ -85,7 +85,7 @@ function statusDoPallet(linhas: MercadoriaPiso[]): StatusPallet {
 function proximaAcaoDoPallet(status: StatusPallet, osPendentes: number) {
   if (status === 'problema') return 'Tratar divergência'
   if (status === 'guardado') return 'Pallet guardado'
-  if (osPendentes > 0) return osPendentes === 1 ? 'Criar OS faltante' : 'Criar OS faltantes'
+  if (osPendentes > 0) return osPendentes === 1 ? 'OS pendente' : 'OS pendentes'
   if (status === 'em-execucao') return 'Acompanhar execução'
   return 'Atribuir / executar OS'
 }
@@ -129,7 +129,6 @@ export default function Putaway() {
   const {
     tarefas,
     recebimentos,
-    criarTarefa,
     assumirTarefa,
     concluirTarefa,
     toast,
@@ -162,7 +161,7 @@ export default function Putaway() {
               osExistente,
               recorrente,
               origem: origemPutaway(rec),
-              destino: recorrente?.destino ?? osExistente?.destino ?? 'Endereço sugerido',
+              destino: recorrente?.destino ?? osExistente?.destino ?? sugerirEnderecoPutaway(item.skuCodigo),
             }
           }),
         ),
@@ -191,49 +190,6 @@ export default function Putaway() {
   }, [buscaPiso, palletsPiso])
   const palletSelecionado =
     palletsFiltrados.find((pallet) => pallet.id === palletSelecionadoId) ?? palletsFiltrados[0] ?? null
-
-  const criarOsPutaway = (row: MercadoriaPiso, mostrarToast = true) => {
-    if (!recebimentoLiberadoParaPutaway(row.rec)) {
-      toast({
-        tipo: 'aviso',
-        titulo: 'Putaway bloqueado',
-        texto: `${row.rec.id} ainda não chegou na ordem ${ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO}: classificação de destino + endereçamento.`,
-      })
-      return null
-    }
-
-    const id = criarTarefa({
-      tipo: 'putaway',
-      prioridade: row.rec.status === 'divergencia' ? 'alta' : row.recorrente ? 'media' : 'baixa',
-      operador: null,
-      origem: row.origem,
-      destino: row.destino,
-      sku: row.item.skuCodigo,
-      descricao: row.item.descricao,
-      quantidade: row.item.contado ?? row.item.esperado,
-      lote: row.item.lote ?? null,
-      sla: row.rec.eta,
-      etapa: row.recorrente ? 'Endereçamento recorrente' : 'Endereçamento sugerido',
-      referenciaTipo: 'recebimento',
-      referenciaId: row.rec.id,
-    })
-    if (mostrarToast) {
-      toast({ tipo: 'sucesso', titulo: 'OS de putaway criada', texto: `${id} · ${row.item.skuCodigo} → ${row.destino}` })
-    }
-    return id
-  }
-
-  const criarOsPallet = (pallet: PalletEnderecamento) => {
-    const pendentes = pallet.linhas.filter((linha) => !linha.osExistente)
-    const ids = pendentes.map((linha) => criarOsPutaway(linha, false)).filter((id): id is string => !!id)
-    if (!ids.length) return
-
-    toast({
-      tipo: 'sucesso',
-      titulo: ids.length === 1 ? 'OS do pallet criada' : 'OS do pallet criadas',
-      texto: `${pallet.id} · ${ids.length} OS enviada(s) para a fila`,
-    })
-  }
 
   return (
     <div className="space-y-6">
@@ -279,8 +235,6 @@ export default function Putaway() {
               putawayBloqueados={putawayBloqueados}
               onBuscaChange={setBuscaPiso}
               onSelecionar={setPalletSelecionadoId}
-              onCriarOsPallet={criarOsPallet}
-              onCriarOsLinha={(row) => criarOsPutaway(row)}
             />
           )}
 
@@ -382,9 +336,6 @@ export default function Putaway() {
         title="Gestão de OS de putaway"
         subtitle="O supervisor cria e atribui ordens; o operador confirma origem, SKU e destino no app."
         tipos={['putaway']}
-        defaultTipo="putaway"
-        defaultOrigem="STG-REC-03"
-        defaultDestino="Endereço sugerido"
       />
 
       {tarefa && (
@@ -410,8 +361,6 @@ function PalletsPisoView({
   putawayBloqueados,
   onBuscaChange,
   onSelecionar,
-  onCriarOsPallet,
-  onCriarOsLinha,
 }: {
   palletsTodos: PalletEnderecamento[]
   pallets: PalletEnderecamento[]
@@ -420,8 +369,6 @@ function PalletsPisoView({
   putawayBloqueados: number
   onBuscaChange: (value: string) => void
   onSelecionar: (id: string) => void
-  onCriarOsPallet: (pallet: PalletEnderecamento) => void
-  onCriarOsLinha: (row: MercadoriaPiso) => void
 }) {
   const totalSkus = palletsTodos.reduce((total, pallet) => total + pallet.skus, 0)
   const osPendentes = palletsTodos.reduce((total, pallet) => total + pallet.osPendentes, 0)
@@ -475,11 +422,7 @@ function PalletsPisoView({
 
         <div className="min-w-0">
           {selecionado ? (
-            <PalletDetail
-              pallet={selecionado}
-              onCriarOsPallet={onCriarOsPallet}
-              onCriarOsLinha={onCriarOsLinha}
-            />
+            <PalletDetail pallet={selecionado} />
           ) : (
             <div className="rounded-2xl border border-line bg-surface">
               <EmptyState
@@ -548,12 +491,8 @@ function PalletListItem({
 
 function PalletDetail({
   pallet,
-  onCriarOsPallet,
-  onCriarOsLinha,
 }: {
   pallet: PalletEnderecamento
-  onCriarOsPallet: (pallet: PalletEnderecamento) => void
-  onCriarOsLinha: (row: MercadoriaPiso) => void
 }) {
   const meta = statusPalletMeta[pallet.status]
 
@@ -571,15 +510,9 @@ function PalletDetail({
               {pallet.rec.id} · {pallet.rec.fornecedor} · {ownerName(pallet.rec.ownerId)}
             </p>
           </div>
-          <button
-            type="button"
-            disabled={pallet.osPendentes === 0}
-            onClick={() => onCriarOsPallet(pallet)}
-            className={pallet.osPendentes === 0 ? 'btn-outline text-ok' : 'btn-primary'}
-          >
-            {pallet.osPendentes === 0 ? <CheckCircle2 className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {pallet.osPendentes === 0 ? 'OS completas' : 'Criar OS faltantes'}
-          </button>
+          <Badge tone={pallet.osPendentes === 0 ? 'ok' : 'warn'}>
+            {pallet.osPendentes === 0 ? 'OS completas' : `${pallet.osPendentes} OS pendente(s)`}
+          </Badge>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -651,15 +584,7 @@ function PalletDetail({
                     <LinhaPutawayStatus row={row} />
                   </td>
                   <td className="td text-right">
-                    <button
-                      type="button"
-                      className={row.osExistente ? 'btn-outline py-1.5 px-3 text-xs' : 'btn-primary py-1.5 px-3 text-xs'}
-                      disabled={!!row.osExistente}
-                      onClick={() => onCriarOsLinha(row)}
-                    >
-                      {row.osExistente ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-                      {row.osExistente ? 'OS criada' : 'Criar OS'}
-                    </button>
+                    <LinhaPutawayStatus row={row} />
                   </td>
                 </tr>
               ))}
@@ -797,7 +722,7 @@ function PutawayExec({
         {!alternativo && (
           <button
             onClick={() => {
-              const novo = 'A-15-02-1'
+              const novo = ADMIN_BUSINESS_PUTAWAY.alternativa
               setDestino(novo)
               setAlternativo(true)
               setValidado(false)

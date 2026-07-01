@@ -118,9 +118,6 @@ export default function Reabastecimento() {
         title="OS de reabastecimento"
         subtitle="Crie reposições automáticas ou sob demanda para operadores executarem no app."
         tipos={['reabastecimento']}
-        defaultTipo="reabastecimento"
-        defaultOrigem="PUL-A-22"
-        defaultDestino="A-13-01-1"
       />
 
       {exec && (

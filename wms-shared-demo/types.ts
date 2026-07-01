@@ -110,6 +110,7 @@ export interface DemoOperationalTask {
   id: string
   fluxo:
     | 'receber'
+    | 'bipagem'
     | 'guardar'
     | 'separar'
     | 'conferir'
@@ -127,6 +128,8 @@ export interface DemoOperationalTask {
   destino: string
   skuCodigo: string
   quantidadeBase: number
+  expedicao?: DemoExpeditionTaskContext
+  recebimento?: DemoReceivingTaskContext
   passos: Array<{
     instrucao: string
     esperado: string
@@ -161,6 +164,7 @@ export type DemoOperationalTaskStatus =
 
 export type DemoChecklistFlow =
   | 'receber'
+  | 'bipagem'
   | 'guardar'
   | 'separar'
   | 'conferir'
@@ -248,11 +252,104 @@ export interface DemoOperationalOccurrence {
 
 export interface DemoOperationalEvent {
   id: string
-  objectType: 'task' | 'occurrence' | 'label' | 'staging' | 'integration'
+  objectType: 'task' | 'occurrence' | 'label' | 'staging' | 'integration' | 'expedition_load'
   objectId: string
   eventType: string
   message: string
   payload?: Record<string, string | number | boolean | null>
   userId: string
   timestamp: string
+}
+
+export interface DemoReceivingItem {
+  skuCodigo: string
+  descricao: string
+  esperado: number
+  unidadesPorCaixa?: number
+}
+
+export interface DemoReceivingOrder {
+  id: string
+  doca: string
+  documento: string
+  fornecedor: string
+  placa?: string
+  motorista?: string
+  eta: string
+  ordemExecucaoAtual: number
+  itens: DemoReceivingItem[]
+}
+
+export interface DemoReceivingTaskContext {
+  id: string
+  documento: string
+  fornecedor: string
+  placaEsperada: string
+  motoristaEsperado: string
+  horarioAgendado: string
+  ordemExecucaoAtual: number
+  filaSeguranca: string
+  filaAdministrativa: string
+}
+
+export type DemoExpeditionDestination = 'enderecamento' | 'cross-docking'
+
+export type DemoExpeditionLoadStatus =
+  | 'montagem-aprovada'
+  | 'anexada-destino'
+  | 'reservada'
+  | 'conferencia'
+  | 'pronta-expedicao'
+  | 'carregando'
+  | 'viagem-liberada'
+  | 'bloqueada'
+
+export type DemoExpeditionVehicleCondition = 'ok' | 'recusado'
+
+export interface DemoExpeditionVolume {
+  id: string
+  pedidoId: string
+  cte: string
+  palletId: string
+  cubagemM3: number
+  pesoKg: number
+  bipado: boolean
+  descricao: string
+  staging: string
+  divergencia?: string
+}
+
+export interface DemoExpeditionLoad {
+  id: string
+  coletaId: string
+  romaneioId: string
+  destino: string
+  destinoOperacional: DemoExpeditionDestination
+  transportadora: string
+  veiculo: string
+  placa: string
+  motorista: string
+  horario: string
+  doca: string
+  status: DemoExpeditionLoadStatus
+  capacidadeM3: number
+  capacidadeKg: number
+  tarefaConferenciaId: string
+  tarefaCarregamentoId: string
+  origem: {
+    tipo: 'montagem'
+    montagemId: string
+    recebimentoId: string
+    palletA4Id: string
+    anexadoEm: string
+  }
+  volumes: DemoExpeditionVolume[]
+}
+
+export interface DemoExpeditionTaskContext {
+  cargaId: string
+  romaneioId: string
+  origem: 'montagem'
+  destinoOperacional: DemoExpeditionDestination
+  tipoEventoFinal: 'expedicao.conferencia_finalizada' | 'expedicao.checklist_embarque'
 }

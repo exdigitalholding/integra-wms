@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ClipboardCheck, ShieldCheck, RotateCcw, Lock } from 'lucide-react'
+import { ShieldCheck, RotateCcw, Lock } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { Badge, Modal, PageHeader, type Tone } from '../components/ui'
 import OrdemServicoPanel from '../components/OrdemServicoPanel'
@@ -15,9 +15,8 @@ const statusMeta: Record<ContagemItem['status'], { l: string; tone: Tone }> = {
 }
 
 export default function Inventario() {
-  const { contagens, registrarContagem, recontar, aprovarAjuste, criarTarefa, toast } = useStore()
+  const { contagens, registrarContagem, recontar, aprovarAjuste, toast } = useStore()
   const [contar, setContar] = useState<ContagemItem | null>(null)
-  const [gerar, setGerar] = useState(false)
 
   const prog = Math.round(
     (contagens.filter((c) => c.status === 'ok' || c.status === 'ajustado').length / contagens.length) * 100,
@@ -28,14 +27,7 @@ export default function Inventario() {
       <PageHeader
         title="Inventário Rotativo (Cycle Count)"
         subtitle="Gera contagem por endereço/curva → Conta cego → Diverge? → Recontagem → Ajuste com aprovação"
-      >
-        <button
-          className="btn-primary"
-          onClick={() => setGerar(true)}
-        >
-          <ClipboardCheck className="h-4 w-4" /> Gerar nova contagem
-        </button>
-      </PageHeader>
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
@@ -117,9 +109,6 @@ export default function Inventario() {
         title="OS de inventário rotativo"
         subtitle="Contagem cega, recontagem por divergência e ajuste com aprovação ficam na mesma fila operacional."
         tipos={['contagem', 'recontagem']}
-        defaultTipo="contagem"
-        defaultOrigem="Endereço"
-        defaultDestino="Aprovação se divergir"
       />
 
       {contar && (
@@ -146,96 +135,7 @@ export default function Inventario() {
           }}
         />
       )}
-      {gerar && (
-        <GerarContagemModal
-          onClose={() => setGerar(false)}
-          onGerar={(criterio, operador) => {
-            const base = contagens.filter((c) => c.status === 'pendente').slice(0, 3)
-            base.forEach((item) => {
-              criarTarefa({
-                tipo: 'contagem',
-                prioridade: item.endereco.startsWith('A-') ? 'alta' : 'media',
-                operador: operador || null,
-                status: operador ? 'fazendo' : 'a-fazer',
-                origem: item.endereco,
-                destino: 'Contagem cega',
-                sku: item.skuCodigo,
-                descricao: `${criterio}: contar ${item.descricao}`,
-                quantidade: 0,
-                sla: '12:00',
-                etapa: 'Contagem cega',
-                referenciaTipo: 'contagem',
-                referenciaId: item.id,
-              })
-            })
-            toast({ tipo: 'sucesso', titulo: 'OS de contagem geradas', texto: `${base.length} endereços enviados para a fila` })
-            setGerar(false)
-          }}
-        />
-      )}
     </div>
-  )
-}
-
-function GerarContagemModal({
-  onClose,
-  onGerar,
-}: {
-  onClose: () => void
-  onGerar: (criterio: string, operador: string) => void
-}) {
-  const [criterio, setCriterio] = useState('Curva A + posições críticas')
-  const [operador, setOperador] = useState('')
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="lg"
-      title="Gerar nova contagem"
-      subtitle="Cria OS de contagem cega para o app do operador; divergência gera recontagem e ajuste pendente."
-      footer={
-        <>
-          <button onClick={onClose} className="btn-outline">Cancelar</button>
-          <button onClick={() => onGerar(criterio, operador)} className="btn-primary">
-            <ClipboardCheck className="h-4 w-4" /> Gerar OS
-          </button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-3">
-          {[
-            ['Curva ABC', 'Itens A são contados com mais frequência para proteger venda e picking.'],
-            ['Gatilho de ruptura', 'Endereço vazio ou divergência no picking dispara contagem imediata.'],
-            ['Aprovação', 'Ajuste de saldo exige reason code e alçada do supervisor.'],
-          ].map(([title, text]) => (
-            <div key={title} className="rounded-xl border border-line bg-surface-sub p-3">
-              <p className="text-sm font-medium text-brand">{title}</p>
-              <p className="mt-1 text-xs text-ink-muted">{text}</p>
-            </div>
-          ))}
-        </div>
-        <div>
-          <label className="label">Critério da rodada</label>
-          <select value={criterio} onChange={(event) => setCriterio(event.target.value)} className="input">
-            <option>Curva A + posições críticas</option>
-            <option>Zona de picking abaixo de 99% acuracidade</option>
-            <option>Endereços com ruptura reportada</option>
-            <option>Contagem por owner / cliente 3PL</option>
-          </select>
-        </div>
-        <div>
-          <label className="label">Operador inicial</label>
-          <select value={operador} onChange={(event) => setOperador(event.target.value)} className="input">
-            <option value="">Criar sem operador</option>
-            <option>Patrícia L.</option>
-            <option>João R.</option>
-            <option>Operador Demo</option>
-          </select>
-        </div>
-      </div>
-    </Modal>
   )
 }
 

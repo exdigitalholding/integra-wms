@@ -14,6 +14,7 @@ import type {
   DemoUser,
   DemoWarehouse,
 } from './types'
+import { CARGAS_EXPEDICAO } from './expedicao'
 
 export const DEMO_WAREHOUSES: DemoWarehouse[] = [
   { id: 'cd-sp', codigo: 'CD-SP', nome: 'CD Cajamar', cidade: 'Cajamar', uf: 'SP', modo: 'completo', ativo: true },
@@ -323,6 +324,64 @@ export const DEMO_DEVICES: DemoDevice[] = [
 
 export const DEMO_OPERATIONAL_TASKS: DemoOperationalTask[] = [
   {
+    id: 'T-EXP-CONF-4421',
+    fluxo: 'conferir',
+    prioridade: 'alta',
+    status: 'ASSIGNED',
+    resumo: 'Conferir volumes CG-4421',
+    contexto: 'Montagem aprovada MNT-2041 -> cross-docking DOCA-03',
+    conclusao: 'Conferencia concluida. WEB atualizado com bipagem volume a volume.',
+    ownerId: 'own-nano',
+    armazemId: 'cd-sp',
+    origem: 'STG-XD-03',
+    destino: 'DOCA-03',
+    skuCodigo: 'VOL-77121-1',
+    quantidadeBase: 1,
+    expedicao: {
+      cargaId: 'CG-4421',
+      romaneioId: 'ROM-3301',
+      origem: 'montagem',
+      destinoOperacional: 'cross-docking',
+      tipoEventoFinal: 'expedicao.conferencia_finalizada',
+    },
+    passos: [
+      { instrucao: 'Bipe o staging', esperado: 'STG-XD-03', rotulo: 'Staging', tipo: 'scan', icon: 'file-tray-stacked' },
+      { instrucao: 'Bipe o CTE', esperado: 'CTE-9002', rotulo: 'CTE', tipo: 'scan', icon: 'document-text' },
+      { instrucao: 'Bipe o pallet', esperado: 'PAL-2041-02', rotulo: 'Pallet', tipo: 'scan', icon: 'file-tray-stacked' },
+      { instrucao: 'Bipe o volume', esperado: 'VOL-77121-1', rotulo: 'Volume', tipo: 'scan', icon: 'cube', dica: 'Conferencia individual obrigatoria mesmo com pallet identificado.' },
+      { instrucao: 'Finalize a conferencia', esperado: 'OK', rotulo: 'Conferencia', tipo: 'confirmar', icon: 'checkmark-done' },
+    ],
+  },
+  {
+    id: 'T-EXP-CAR-4421',
+    fluxo: 'carregar',
+    prioridade: 'alta',
+    status: 'ASSIGNED',
+    resumo: 'Checklist e embarque CG-4421',
+    contexto: 'Correios · PLT-2D45 · DOCA-03',
+    conclusao: 'Checklist enviado ao WEB. Se o veiculo for recusado, frotas entra como prioridade maxima.',
+    ownerId: 'own-nano',
+    armazemId: 'cd-sp',
+    origem: 'STG-XD-03',
+    destino: 'DOCA-03',
+    skuCodigo: 'CG-4421',
+    quantidadeBase: 1,
+    expedicao: {
+      cargaId: 'CG-4421',
+      romaneioId: 'ROM-3301',
+      origem: 'montagem',
+      destinoOperacional: 'cross-docking',
+      tipoEventoFinal: 'expedicao.checklist_embarque',
+    },
+    passos: [
+      { instrucao: 'Bipe a doca', esperado: 'DOCA-03', rotulo: 'Doca', tipo: 'scan', icon: 'business' },
+      { instrucao: 'Bipe a placa', esperado: 'PLT-2D45', rotulo: 'Veiculo', tipo: 'scan', icon: 'car' },
+      { instrucao: 'Bipe a carga', esperado: 'CG-4421', rotulo: 'Carga', tipo: 'scan', icon: 'layers' },
+      { instrucao: 'Bipe o volume final', esperado: 'VOL-77121-1', rotulo: 'Volume', tipo: 'scan', icon: 'cube' },
+      { instrucao: 'Anexe foto e finalize', esperado: 'OK', rotulo: 'Checklist', tipo: 'confirmar', icon: 'camera' },
+    ],
+  },
+  {
     id: 'T-9003',
     fluxo: 'separar',
     prioridade: 'alta',
@@ -349,7 +408,7 @@ export const DEMO_OPERATIONAL_TASKS: DemoOperationalTask[] = [
     status: 'ASSIGNED',
     resumo: 'Doca 03 - Recebimento NanoTech',
     contexto: 'NF-e 88.214 · conferencia cega',
-    conclusao: 'Mercadoria liberada para staging a enderecar.',
+    conclusao: 'Checklist de chegada concluido. WEB libera a conferencia documental e gera OS de bipagem.',
     ownerId: 'own-nano',
     armazemId: 'cd-sp',
     origem: 'DOCA-03',
@@ -358,7 +417,24 @@ export const DEMO_OPERATIONAL_TASKS: DemoOperationalTask[] = [
     quantidadeBase: 120,
     passos: [
       { instrucao: 'Bipe a doca', esperado: 'DOCA-03', rotulo: 'Doca', tipo: 'scan', icon: 'car' },
-      { instrucao: 'Bipe o produto', esperado: 'SKU-10241', rotulo: 'Produto', tipo: 'scan', icon: 'cube', dica: 'Fone Bluetooth Pulse X · caixa com 12' },
+    ],
+  },
+  {
+    id: 'T-REC-BIP-2041',
+    fluxo: 'bipagem',
+    prioridade: 'normal',
+    status: 'ASSIGNED',
+    resumo: 'Bipar etiquetas REC-2041',
+    contexto: 'Depois da conferencia documental · etiquetas geradas no WEB',
+    conclusao: 'Etiqueta bipada e quantidade registrada. Recebimento segue para montagem de pallets.',
+    ownerId: 'own-nano',
+    armazemId: 'cd-sp',
+    origem: 'AREA-ETIQUETAGEM',
+    destino: 'AREA-MONTAGEM',
+    skuCodigo: 'ETQ-REC-2041-SKU-10241-001',
+    quantidadeBase: 120,
+    passos: [
+      { instrucao: 'Bipe a etiqueta do volume', esperado: 'ETQ-REC-2041-SKU-10241-001', rotulo: 'Etiqueta', tipo: 'scan', icon: 'barcode', dica: 'Etiqueta criada na tela /etiquetagem para REC-2041.' },
       { instrucao: 'Conte as caixas', esperado: '10', rotulo: 'Caixas recebidas', tipo: 'quantidade', icon: 'calculator', unidade: 'cx', fatorBase: 12 },
     ],
   },
@@ -463,6 +539,10 @@ export const DEMO_OPERATIONAL_TASKS: DemoOperationalTask[] = [
     ],
   },
 ]
+
+if (!CARGAS_EXPEDICAO.some((carga) => carga.tarefaConferenciaId === 'T-EXP-CONF-4421')) {
+  throw new Error('Carga de expedicao sem tarefa mobile de conferencia vinculada.')
+}
 
 export const DEMO_CHECKLIST_TEMPLATES: DemoChecklistTemplate[] = [
   {

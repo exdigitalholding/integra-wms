@@ -24,6 +24,10 @@ import {
   DEMO_WAREHOUSES,
   DEMO_CHECKLIST_TEMPLATES,
 } from '../../../wms-shared-demo'
+import {
+  DEMO_ADMIN_BUSINESS_ADDRESS_BLUEPRINT,
+  DEMO_ADMIN_BUSINESS_DOCAS,
+} from '../../../wms-shared-demo/locations.ts'
 
 /* ------------------------------------------------------------------ *
  * Dados-semente (mock). Sem API: tudo vive em memória no store.
@@ -68,26 +72,16 @@ export const ZONAS: Zona[] = [
 ]
 
 export const DOCAS: Doca[] = [
-  { id: 'dk-1', armazemId: 'cd-sp', codigo: 'DOCA-01', nome: 'Doca 01 — Recebimento', tipo: 'recebimento', niveladora: true, ativo: true },
-  { id: 'dk-2', armazemId: 'cd-sp', codigo: 'DOCA-02', nome: 'Doca 02 — Recebimento', tipo: 'recebimento', niveladora: true, ativo: true },
-  { id: 'dk-3', armazemId: 'cd-sp', codigo: 'DOCA-03', nome: 'Doca 03 — Expedição', tipo: 'expedicao', niveladora: true, ativo: true },
-  { id: 'dk-4', armazemId: 'cd-sp', codigo: 'DOCA-04', nome: 'Doca 04 — Mista', tipo: 'ambas', niveladora: false, ativo: true },
+  { id: 'dk-1', armazemId: 'cd-sp', codigo: DEMO_ADMIN_BUSINESS_DOCAS.recebimento01, nome: 'Doca 01 — Recebimento', tipo: 'recebimento', niveladora: true, ativo: true },
+  { id: 'dk-2', armazemId: 'cd-sp', codigo: DEMO_ADMIN_BUSINESS_DOCAS.recebimento02, nome: 'Doca 02 — Recebimento', tipo: 'recebimento', niveladora: true, ativo: true },
+  { id: 'dk-3', armazemId: 'cd-sp', codigo: DEMO_ADMIN_BUSINESS_DOCAS.expedicao03, nome: 'Doca 03 — Expedição', tipo: 'expedicao', niveladora: true, ativo: true },
+  { id: 'dk-4', armazemId: 'cd-sp', codigo: DEMO_ADMIN_BUSINESS_DOCAS.mista04, nome: 'Doca 04 — Mista', tipo: 'ambas', niveladora: false, ativo: true },
   { id: 'dk-5', armazemId: 'cd-rj', codigo: 'DOCA-01', nome: 'Doca 01', tipo: 'ambas', niveladora: true, ativo: true },
 ]
 
 /* Endereços-semente do CD Cajamar: 3 ruas × 4 colunas × 3 níveis × 1 posição = 36 */
 export const ENDERECOS: Endereco[] = [
-  ...gerarEnderecos({
-    armazemId: 'cd-sp',
-    zonaId: 'zn-2',
-    ruas: ['A', 'B', 'C'],
-    colunas: 4,
-    niveis: 3,
-    posicoes: 1,
-    tipo: 'picking',
-    capacidadePeso: 800,
-    capacidadePaletes: 1,
-  }),
+  ...gerarEnderecos(DEMO_ADMIN_BUSINESS_ADDRESS_BLUEPRINT),
   // modo simples: a Loja Jaboatão usa endereço único PADRAO
   { id: 'end-padrao-pe', armazemId: 'lj-pe', zonaId: null, codigo: 'PADRAO', rua: 'PADRAO', coluna: 1, nivel: 1, posicao: 1, tipo: 'picking', capacidadePeso: 0, capacidadePaletes: 0, bloqueado: false },
 ]

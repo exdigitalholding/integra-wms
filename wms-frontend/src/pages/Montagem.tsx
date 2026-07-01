@@ -1,11 +1,16 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Edges, Grid, Html, OrbitControls, RoundedBox } from '@react-three/drei'
+import { Edges, Grid, Html, OrbitControls } from '@react-three/drei'
+import * as THREE from 'three'
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Boxes,
+  CalendarClock,
   CheckCircle2,
   FileText,
+  GripVertical,
   Layers,
   Move3d,
   PackageCheck,
@@ -15,15 +20,37 @@ import {
   Search,
   Tags,
   Truck,
+  Warehouse,
   Weight,
+  Shuffle,
 } from 'lucide-react'
-import { Badge, EmptyState, PageHeader, Progress, Tab, Tabs, type Tone } from '../components/ui'
-import { VIAGENS_ETIQUETAGEM, ownerName } from '../lib/mock'
+import { Badge, EmptyState, Modal, PageHeader, Progress, Tab, Tabs, type Tone } from '../components/ui'
+import { empresaSkuIdPorOwner, VIAGENS_ETIQUETAGEM, ownerName } from '../lib/mock'
 import {
   ORDEM_MONTAGEM_PALLETS,
   resumoSkusPendentes,
   skusPendentesDoRecebimento,
 } from '../lib/skuControle'
+import {
+  aplicarOrdemManualPallets,
+  removerRequisicoesDoRecebimento,
+  reordenarIdsPallets,
+  selecionarMontagemPorClique,
+} from '../lib/montagemSelection'
+import {
+  criarDadosDestinoA4,
+  tipoDestinoA4Label,
+  type CriarDadosDestinoA4Input,
+  type DadosDestinoA4,
+  type TipoDestinoA4,
+} from '../lib/montagemDestinoA4'
+import { criarTransformacoesCaixas3D } from '../lib/pallet3dInstancing'
+import { separarEtiquetasParaMontagem } from '../lib/montagemDivergencia'
+import {
+  estimarAlturaPallet,
+  planejarBucketsPallets,
+  volumeCabeNoPallet,
+} from '../lib/palletPlanner'
 import {
   calcularEtiquetas,
   emissaoAutomaticaIso,
@@ -34,6 +61,7 @@ import {
 } from '../lib/etiquetas'
 import { cn } from '../lib/utils'
 import { useStore } from '../store/useStore'
+import type { RegistroDivergenciaEtiqueta } from '../lib/divergenciaEtiquetagem'
 import type { SkuControle } from '../lib/types'
 
 type AbaMontagem = 'etapa6' | 'historico' | 'bloqueadas' | 'todas'
@@ -57,6 +85,7 @@ interface SkuNoPallet {
 
 interface PalletPlanejado {
   id: string
+  tipo: 'normal' | 'devolucao'
   volumes: VolumeMontagem[]
   skus: SkuNoPallet[]
   pesoKg: number
@@ -71,7 +100,9 @@ interface RowMontagem {
   row: ViagemComRecebimento
   bloqueio: string | null
   volumes: VolumeMontagem[]
+  volumesDevolucao: VolumeMontagem[]
   pallets: PalletPlanejado[]
+  palletsDevolucao: PalletPlanejado[]
   totalPesoKg: number
   totalCubagemM3: number
 }
@@ -83,13 +114,14 @@ interface RequisicaoImpressaoSku {
   unidades: number
 }
 
-interface RequisicaoImpressaoPallet {
+interface RequisicaoImpressaoPallet extends DadosDestinoA4 {
   id: string
   recebimentoId: string
   viagemId: string
   palletId: string
   criadaEmIso: string
   status: 'solicitada'
+  tipo: 'normal' | 'devolucao'
   cte: string
   nf: string
   skus: RequisicaoImpressaoSku[]
@@ -108,6 +140,12 @@ const CAIXA_GAP_M = 0.008
 const LIMITE_PESO_KG = 1500
 const LIMITE_ALTURA_CARGA_M = 3
 const LIMITE_CUBAGEM_M3 = PALLET_BASE_M2 * LIMITE_ALTURA_CARGA_M
+const LIMITES_PLANEJAMENTO_PALLET = {
+  comprimentoM: PALLET_COMPRIMENTO_M,
+  larguraM: PALLET_LARGURA_M,
+  alturaM: LIMITE_ALTURA_CARGA_M,
+  pesoKg: LIMITE_PESO_KG,
+}
 const ALTURA_TICK_M = 0.5
 const CORES_SKU_3D = ['#2563eb', '#00a88e', '#d97706', '#db2777', '#059669', '#64748b']
 
@@ -175,6 +213,17 @@ function formatarM(valor: number) {
 
 function formatarPercentual(valor: number) {
   return `${valor.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`
+}
+
+function dataHoraLocalInput(data = new Date()) {
+  const local = new Date(data.getTime() - data.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function dataHoraLocalParaIso(valor: string) {
+  if (!valor) return ''
+  const data = new Date(valor)
+  return Number.isNaN(data.getTime()) ? '' : data.toISOString()
 }
 
 function limitar(valor: number, minimo: number, maximo: number) {
@@ -395,10 +444,11 @@ function cubagemDaEtiqueta(etiqueta: EtiquetaVolume, cadastro: SkuControle | nul
   return cadastro.cubagemM3
 }
 
-function volumesDaViagem(row: ViagemComRecebimento, skusControle: SkuControle[]): VolumeMontagem[] {
-  if (!row.recebimento) return []
-
-  return calcularEtiquetas(row.viagem, row.recebimento, emissaoAutomaticaIso(row)).map((etiqueta) => {
+function mapearVolumeMontagem(
+  row: ViagemComRecebimento,
+  skusControle: SkuControle[],
+  etiqueta: EtiquetaVolume,
+): VolumeMontagem {
     const cadastro = cadastroDoVolume(row, etiqueta, skusControle)
     const cubagemM3 = cubagemDaEtiqueta(etiqueta, cadastro)
     return {
@@ -408,7 +458,22 @@ function volumesDaViagem(row: ViagemComRecebimento, skusControle: SkuControle[])
       cubagemM3,
       fatorCritico: Math.max(etiqueta.kgValor / LIMITE_PESO_KG, cubagemM3 / LIMITE_CUBAGEM_M3),
     }
-  })
+}
+
+function volumesDaViagem(
+  row: ViagemComRecebimento,
+  skusControle: SkuControle[],
+  divergencias: RegistroDivergenciaEtiqueta[],
+): { normais: VolumeMontagem[]; devolucao: VolumeMontagem[] } {
+  if (!row.recebimento) return { normais: [], devolucao: [] }
+
+  const etiquetas = calcularEtiquetas(row.viagem, row.recebimento, emissaoAutomaticaIso(row))
+  const separadas = separarEtiquetasParaMontagem(etiquetas, divergencias)
+
+  return {
+    normais: separadas.normais.map((etiqueta) => mapearVolumeMontagem(row, skusControle, etiqueta)),
+    devolucao: separadas.devolucao.map((etiqueta) => mapearVolumeMontagem(row, skusControle, etiqueta)),
+  }
 }
 
 function motivoBloqueioMontagem(row: ViagemComRecebimento, volumes: VolumeMontagem[], skusControle: SkuControle[]) {
@@ -442,6 +507,11 @@ function motivoBloqueioMontagem(row: ViagemComRecebimento, volumes: VolumeMontag
   )
   if (volumeInviavel) return `Etiqueta ${volumeInviavel.etiqueta.id} excede a capacidade individual do pallet`
 
+  const volumeSemBase = volumes.find(
+    (volume) => !volumeCabeNoPallet(volume, LIMITES_PLANEJAMENTO_PALLET, dimensoesDoVolume),
+  )
+  if (volumeSemBase) return `Etiqueta ${volumeSemBase.etiqueta.id} excede a base do pallet`
+
   return null
 }
 
@@ -470,10 +540,20 @@ function consolidarSkus(volumes: VolumeMontagem[]) {
   return [...porSku.values()].sort((a, b) => b.cubagemM3 - a.cubagemM3)
 }
 
-function criarPallet(seed: string, index: number, volumes: VolumeMontagem[]): PalletPlanejado {
+function criarPallet(
+  seed: string,
+  index: number,
+  volumes: VolumeMontagem[],
+  tipo: PalletPlanejado['tipo'] = 'normal',
+): PalletPlanejado {
   const pesoKg = volumes.reduce((total, volume) => total + volume.pesoKg, 0)
   const cubagemM3 = volumes.reduce((total, volume) => total + volume.cubagemM3, 0)
-  const alturaM = cubagemM3 / PALLET_BASE_M2
+  const alturaPlanejadaM = estimarAlturaPallet(
+    volumes,
+    LIMITES_PLANEJAMENTO_PALLET,
+    dimensoesDoVolume,
+  )
+  const alturaM = Number.isFinite(alturaPlanejadaM) ? alturaPlanejadaM : cubagemM3 / PALLET_BASE_M2
   const utilizacaoPeso = (pesoKg / LIMITE_PESO_KG) * 100
   const utilizacaoAltura = (alturaM / LIMITE_ALTURA_CARGA_M) * 100
   const diferenca = Math.abs(utilizacaoPeso - utilizacaoAltura)
@@ -482,6 +562,7 @@ function criarPallet(seed: string, index: number, volumes: VolumeMontagem[]): Pa
 
   return {
     id: `PAL-${seed}-${String(index + 1).padStart(2, '0')}`,
+    tipo,
     volumes,
     skus: consolidarSkus(volumes),
     pesoKg,
@@ -493,31 +574,13 @@ function criarPallet(seed: string, index: number, volumes: VolumeMontagem[]): Pa
   }
 }
 
-function planejarPallets(volumes: VolumeMontagem[], recebimentoId: string) {
-  const ordenados = [...volumes].sort((a, b) => b.fatorCritico - a.fatorCritico)
-  const buckets: VolumeMontagem[][] = []
-
-  ordenados.forEach((volume) => {
-    let melhorIndice = -1
-    let melhorScore = -1
-
-    buckets.forEach((bucket, index) => {
-      const pesoAtual = bucket.reduce((total, item) => total + item.pesoKg, 0)
-      const cubagemAtual = bucket.reduce((total, item) => total + item.cubagemM3, 0)
-      const pesoDepois = pesoAtual + volume.pesoKg
-      const cubagemDepois = cubagemAtual + volume.cubagemM3
-
-      if (pesoDepois > LIMITE_PESO_KG || cubagemDepois > LIMITE_CUBAGEM_M3) return
-
-      const score = pesoDepois / LIMITE_PESO_KG + cubagemDepois / LIMITE_CUBAGEM_M3
-      if (score > melhorScore) {
-        melhorIndice = index
-        melhorScore = score
-      }
-    })
-
-    if (melhorIndice === -1) buckets.push([volume])
-    else buckets[melhorIndice].push(volume)
+function planejarPallets(volumes: VolumeMontagem[], recebimentoId: string, tipo: PalletPlanejado['tipo'] = 'normal') {
+  const buckets = planejarBucketsPallets(volumes, {
+    limites: LIMITES_PLANEJAMENTO_PALLET,
+    getPesoKg: (volume) => volume.pesoKg,
+    getCubagemM3: (volume) => volume.cubagemM3,
+    getFatorCritico: (volume) => volume.fatorCritico,
+    getDimensoes: dimensoesDoVolume,
   })
 
   return buckets
@@ -526,13 +589,29 @@ function planejarPallets(volumes: VolumeMontagem[], recebimentoId: string) {
         recebimentoId.replace('REC-', ''),
         index,
         bucket.sort((a, b) => a.etiqueta.skuCodigo.localeCompare(b.etiqueta.skuCodigo)),
+        tipo,
       ),
     )
     .sort((a, b) => b.cubagemM3 - a.cubagemM3)
 }
 
-function prepararRow(row: ViagemComRecebimento, skusControle: SkuControle[]): RowMontagem {
-  const volumes = volumesDaViagem(row, skusControle)
+function planejarPalletsDevolucao(volumes: VolumeMontagem[], recebimentoId: string) {
+  return planejarPallets(volumes, `${recebimentoId}-DEV`, 'devolucao').map((pallet, index) => ({
+    ...pallet,
+    id: `DEV-${recebimentoId.replace('REC-', '')}-${String(index + 1).padStart(2, '0')}`,
+    tipo: 'devolucao' as const,
+  }))
+}
+
+function prepararRow(
+  row: ViagemComRecebimento,
+  skusControle: SkuControle[],
+  divergenciasEtiquetagem: RegistroDivergenciaEtiqueta[],
+): RowMontagem {
+  const divergenciasDaViagem = divergenciasEtiquetagem.filter((registro) => registro.viagemId === row.viagem.id)
+  const volumesSeparados = volumesDaViagem(row, skusControle, divergenciasDaViagem)
+  const volumes = volumesSeparados.normais
+  const volumesDevolucao = volumesSeparados.devolucao
   const bloqueio = motivoBloqueioMontagem(row, volumes, skusControle)
   const totalPesoKg = volumes.reduce((total, volume) => total + volume.pesoKg, 0)
   const totalCubagemM3 = volumes.reduce((total, volume) => total + volume.cubagemM3, 0)
@@ -541,7 +620,11 @@ function prepararRow(row: ViagemComRecebimento, skusControle: SkuControle[]): Ro
     row,
     bloqueio,
     volumes,
+    volumesDevolucao,
     pallets: !bloqueio && row.recebimento ? planejarPallets(volumes, row.recebimento.id) : [],
+    palletsDevolucao: !bloqueio && row.recebimento && volumesDevolucao.length
+      ? planejarPalletsDevolucao(volumesDevolucao, row.recebimento.id)
+      : [],
     totalPesoKg,
     totalCubagemM3,
   }
@@ -572,17 +655,24 @@ function quantidadeUnidadesPallet(pallet: PalletPlanejado) {
   return pallet.skus.reduce((total, sku) => total + sku.unidades, 0)
 }
 
-function criarRequisicoesImpressao(item: RowMontagem): RequisicaoImpressaoPallet[] {
+function criarRequisicoesImpressao(
+  item: RowMontagem,
+  destinoInput: CriarDadosDestinoA4Input,
+): RequisicaoImpressaoPallet[] {
   if (!item.row.recebimento) return []
   const criadaEmIso = new Date().toISOString()
+  const palletsParaImpressao = [...item.pallets, ...item.palletsDevolucao]
+  const dadosDestino = criarDadosDestinoA4(destinoInput)
 
-  return item.pallets.map((pallet, index) => ({
+  return palletsParaImpressao.map((pallet, index) => ({
     id: `PRINT-${item.row.recebimento!.id.replace('REC-', '')}-${String(index + 1).padStart(2, '0')}`,
+    ...dadosDestino,
     recebimentoId: item.row.recebimento!.id,
     viagemId: item.row.viagem.id,
     palletId: pallet.id,
     criadaEmIso,
     status: 'solicitada',
+    tipo: pallet.tipo,
     cte: item.row.viagem.cte,
     nf: item.row.viagem.nf,
     skus: pallet.skus.map((sku) => ({
@@ -612,6 +702,7 @@ function cadastroDemo(
     id: `sku-demo-${codigo}`,
     codigo,
     descricao,
+    empresaId: empresaSkuIdPorOwner(fallback.ownerId),
     cubagemM3: cubagemCadastroDemo(fallback),
     criadoPor: 'Demonstração 3D',
     criadoEm: '2026-06-26T08:00:00.000Z',
@@ -828,11 +919,13 @@ function criarExemplosPallet3D(skusControle: SkuControle[]): ExemploPallet3D[] {
 }
 
 export default function Montagem() {
-  const { recebimentos, ownerId, skusControle, toast } = useStore()
+  const { recebimentos, ownerId, skusControle, toast, divergenciasEtiquetagem } = useStore()
   const [aba, setAba] = useState<AbaMontagem>('etapa6')
   const [busca, setBusca] = useState('')
   const [selecionadaId, setSelecionadaId] = useState('')
   const [requisicoesImpressao, setRequisicoesImpressao] = useState<Record<string, RequisicaoImpressaoPallet[]>>({})
+  const [ordemManualPorRecebimento, setOrdemManualPorRecebimento] = useState<Record<string, string[]>>({})
+  const [destinoModalOpen, setDestinoModalOpen] = useState(false)
 
   const rows = useMemo<ViagemComRecebimento[]>(() => {
     return VIAGENS_ETIQUETAGEM.map((viagem) => ({
@@ -841,9 +934,24 @@ export default function Montagem() {
     })).filter((row) => ownerId === 'own-all' || row.recebimento?.ownerId === ownerId)
   }, [ownerId, recebimentos])
 
+  const planejamentosAutomaticos = useMemo(
+    () => rows.map((row) => prepararRow(row, skusControle, divergenciasEtiquetagem)),
+    [rows, skusControle, divergenciasEtiquetagem],
+  )
+
   const planejamentos = useMemo(
-    () => rows.map((row) => prepararRow(row, skusControle)),
-    [rows, skusControle],
+    () =>
+      planejamentosAutomaticos.map((item) => {
+        const recId = item.row.recebimento?.id
+        const ordemManual = recId ? ordemManualPorRecebimento[recId] : null
+        if (!ordemManual?.length) return item
+
+        return {
+          ...item,
+          pallets: aplicarOrdemManualPallets(item.pallets, ordemManual),
+        }
+      }),
+    [ordemManualPorRecebimento, planejamentosAutomaticos],
   )
   const exemplos3D = useMemo(() => criarExemplosPallet3D(skusControle), [skusControle])
 
@@ -862,20 +970,23 @@ export default function Montagem() {
         item.row.viagem.cte,
         item.row.viagem.nf,
         item.row.recebimento?.id ?? '',
+        item.row.recebimento?.doca ?? '',
+        item.row.recebimento?.placa ?? '',
         item.row.recebimento?.fornecedor ?? '',
         item.row.recebimento ? ownerName(item.row.recebimento.ownerId) : '',
         ...item.volumes.map((volume) => volume.etiqueta.skuCodigo),
+        ...item.volumesDevolucao.map((volume) => volume.etiqueta.skuCodigo),
       ].join(' ').toLowerCase()
 
       return alvo.includes(q)
     })
   }, [aba, busca, planejamentos])
 
-  const selecionada = filtradas.find((item) => item.row.viagem.id === selecionadaId) ?? filtradas[0] ?? null
+  const selecionada = selecionarMontagemPorClique(filtradas, selecionadaId)
   const filaEtapa6 = planejamentos.filter(itemNaEtapaAtual)
   const historico = planejamentos.filter((item) => !itemNaEtapaAtual(item))
-  const totalPallets = filaEtapa6.reduce((total, item) => total + item.pallets.length, 0)
-  const totalVolumes = filaEtapa6.reduce((total, item) => total + item.volumes.length, 0)
+  const totalPallets = filaEtapa6.reduce((total, item) => total + item.pallets.length + item.palletsDevolucao.length, 0)
+  const totalVolumes = filaEtapa6.reduce((total, item) => total + item.volumes.length + item.volumesDevolucao.length, 0)
   const totalFolhasGeradas = Object.values(requisicoesImpressao).reduce(
     (total, requisicoes) => total + requisicoes.length,
     0,
@@ -885,16 +996,77 @@ export default function Montagem() {
     ? requisicoesImpressao[recebimentoSelecionadoId] ?? []
     : []
   const jaConfirmada = requisicoesSelecionadas.length > 0
+  const ordemAlterada = !!recebimentoSelecionadoId && !!ordemManualPorRecebimento[recebimentoSelecionadoId]?.length
+  const clienteA4Padrao = selecionada?.row.recebimento
+    ? ownerName(selecionada.row.recebimento.ownerId)
+    : selecionada?.row.viagem.destinatario ?? ''
 
-  const confirmarMontagem = () => {
+  const abrirDestinoA4 = () => {
+    if (!selecionada?.row.recebimento || selecionada.bloqueio || jaConfirmada) return
+    setDestinoModalOpen(true)
+  }
+
+  const confirmarMontagem = (destinoInput: CriarDadosDestinoA4Input) => {
     if (!selecionada?.row.recebimento || selecionada.bloqueio) return
     const recId = selecionada.row.recebimento.id
-    const requisicoes = criarRequisicoesImpressao(selecionada)
-    setRequisicoesImpressao((atuais) => ({ ...atuais, [recId]: atuais[recId] ?? requisicoes }))
+    try {
+      const requisicoes = criarRequisicoesImpressao(selecionada, destinoInput)
+      setRequisicoesImpressao((atuais) => ({ ...atuais, [recId]: atuais[recId] ?? requisicoes }))
+      setDestinoModalOpen(false)
+      toast({
+        tipo: 'sucesso',
+        titulo: 'Montagem aprovada',
+        texto: `${requisicoes.length} requisições A4 enviadas para impressão em ${tipoDestinoA4Label[destinoInput.tipo]}.`,
+      })
+    } catch (error) {
+      toast({
+        tipo: 'erro',
+        titulo: 'Destino do A4 incompleto',
+        texto: error instanceof Error ? error.message : 'Revise os dados antes de gerar o A4.',
+      })
+    }
+  }
+
+  const reiniciarMontagem = () => {
+    if (!selecionada?.row.recebimento) return
+    const recId = selecionada.row.recebimento.id
+    setRequisicoesImpressao((atuais) => removerRequisicoesDoRecebimento(atuais, recId))
+    setOrdemManualPorRecebimento((atuais) => {
+      const proximas = { ...atuais }
+      delete proximas[recId]
+      return proximas
+    })
     toast({
-      tipo: 'sucesso',
-      titulo: 'Montagem aprovada',
-      texto: `${requisicoes.length} requisição(ões) A4 enviadas para impressão.`,
+      tipo: 'info',
+      titulo: 'Montagem reiniciada',
+      texto: `Pallets de ${recId} liberados para recalculo e nova aprovação.`,
+    })
+  }
+
+  const reordenarPallet = (palletId: string, direcao: 'up' | 'down') => {
+    if (!selecionada?.row.recebimento || jaConfirmada) return
+    const recId = selecionada.row.recebimento.id
+    const idsAtuais = selecionada.pallets.map((pallet) => pallet.id)
+    const proximosIds = reordenarIdsPallets(idsAtuais, palletId, direcao)
+
+    setOrdemManualPorRecebimento((atuais) => ({
+      ...atuais,
+      [recId]: proximosIds,
+    }))
+  }
+
+  const restaurarOrdemAutomatica = () => {
+    if (!selecionada?.row.recebimento || jaConfirmada) return
+    const recId = selecionada.row.recebimento.id
+    setOrdemManualPorRecebimento((atuais) => {
+      const proximas = { ...atuais }
+      delete proximas[recId]
+      return proximas
+    })
+    toast({
+      tipo: 'info',
+      titulo: 'Ordem automÃ¡tica restaurada',
+      texto: `${recId} voltou para a sequÃªncia calculada pelo sistema.`,
     })
   }
 
@@ -932,8 +1104,6 @@ export default function Montagem() {
         </div>
       </div>
 
-      <ExemplosPallet3D exemplos={exemplos3D} />
-
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
         <div className="space-y-3">
           <div className="rounded-xl border border-line bg-surface">
@@ -946,14 +1116,14 @@ export default function Montagem() {
               </Tabs>
             </div>
             <div className="p-4">
-              <label htmlFor="busca-montagem" className="label">Buscar montagem</label>
+              <label htmlFor="busca-montagem" className="label">Buscar recebimento</label>
               <div className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2.5">
                 <Search className="h-4 w-4 text-ink-muted" />
                 <input
                   id="busca-montagem"
                   value={busca}
                   onChange={(event) => setBusca(event.target.value)}
-                  placeholder="Recebimento, NF, CTe, SKU..."
+                  placeholder="Recebimento, descarga, NF, CTe, SKU..."
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 />
               </div>
@@ -967,7 +1137,7 @@ export default function Montagem() {
                 item={item}
                 selected={selecionada?.row.viagem.id === item.row.viagem.id}
                 confirmada={!!item.row.recebimento && !!requisicoesImpressao[item.row.recebimento.id]?.length}
-                onClick={() => setSelecionadaId(item.row.viagem.id)}
+                onClick={() => setSelecionadaId(item.row.recebimento?.id ?? item.row.viagem.id)}
               />
             ))}
             {!filtradas.length && (
@@ -988,69 +1158,156 @@ export default function Montagem() {
               item={selecionada}
               confirmada={jaConfirmada}
               requisicoes={requisicoesSelecionadas}
-              onConfirmar={confirmarMontagem}
+              ordemAlterada={ordemAlterada}
+              onConfirmar={abrirDestinoA4}
+              onReiniciar={reiniciarMontagem}
+              onReordenarPallet={reordenarPallet}
+              onRestaurarOrdem={restaurarOrdemAutomatica}
             />
           ) : (
             <div className="rounded-xl border border-line bg-surface">
               <EmptyState
                 icon={<Layers className="h-6 w-6" />}
-                title="Selecione uma montagem"
-                text="As ordens aparecem quando existe viagem de etiquetagem vinculada ao recebimento."
+                title="Selecione um recebimento"
+                text="Clique em uma descarga na lista para abrir os pallets planejados daquele recebimento."
               />
             </div>
           )}
         </div>
       </div>
+
+      <DestinoA4Modal
+        open={destinoModalOpen}
+        clienteDefault={clienteA4Padrao}
+        onClose={() => setDestinoModalOpen(false)}
+        onConfirmar={confirmarMontagem}
+      />
+
+      <ExemplosPallet3D exemplos={exemplos3D} />
     </div>
   )
 }
 
-function ExemplosPallet3D({ exemplos }: { exemplos: ExemploPallet3D[] }) {
+function DestinoA4Modal({
+  open,
+  clienteDefault,
+  onClose,
+  onConfirmar,
+}: {
+  open: boolean
+  clienteDefault: string
+  onClose: () => void
+  onConfirmar: (input: CriarDadosDestinoA4Input) => void
+}) {
+  const [tipo, setTipo] = useState<TipoDestinoA4>('armazenagem')
+  const [cliente, setCliente] = useState(clienteDefault)
+  const [entradaStaging, setEntradaStaging] = useState(dataHoraLocalInput())
+  const crossDocking = tipo === 'cross-docking'
+  const podeConfirmar = !crossDocking || (!!cliente.trim() && !!entradaStaging)
+
+  useEffect(() => {
+    if (!open) return
+    setTipo('armazenagem')
+    setCliente(clienteDefault)
+    setEntradaStaging(dataHoraLocalInput())
+  }, [clienteDefault, open])
+
+  const confirmar = () => {
+    if (tipo === 'armazenagem') {
+      onConfirmar({ tipo })
+      return
+    }
+
+    onConfirmar({
+      tipo,
+      cliente,
+      entradaStagingIso: dataHoraLocalParaIso(entradaStaging),
+    })
+  }
+
   return (
-    <section className="space-y-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-brand">Exemplos de pallets 3D</h2>
-          <p className="text-sm text-ink-muted">
-            Cenários de homologação para ver altura, cubagem, peso, camadas e mix de SKUs antes de aprovar a montagem real.
-          </p>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Destino do A4"
+      subtitle="Escolha para onde o pallet segue depois da aprovação da montagem."
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="btn-outline">
+            Cancelar
+          </button>
+          <button type="button" onClick={confirmar} disabled={!podeConfirmar} className="btn-primary">
+            <Printer className="h-4 w-4" />
+            Aprovar e gerar A4
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setTipo('armazenagem')}
+          className={cn(
+            'rounded-xl border p-4 text-left transition-colors',
+            tipo === 'armazenagem' ? 'border-primary bg-primary-50' : 'border-line bg-surface-sub hover:border-primary/40',
+          )}
+        >
+          <div className="flex items-center gap-2 text-sm font-semibold text-brand">
+            <Warehouse className="h-4 w-4 text-primary" />
+            Armazenagem
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">Gera a folha A4 no modelo normal para putaway.</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTipo('cross-docking')}
+          className={cn(
+            'rounded-xl border p-4 text-left transition-colors',
+            crossDocking ? 'border-warn bg-warn-50' : 'border-line bg-surface-sub hover:border-warn/50',
+          )}
+        >
+          <div className="flex items-center gap-2 text-sm font-semibold text-brand">
+            <Shuffle className="h-4 w-4 text-warn" />
+            Cross-docking
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">Inclui cliente e entrada no staging para rastrear permanência.</p>
+        </button>
+      </div>
+
+      {crossDocking && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor="cliente-a4-cross-docking" className="label">Cliente no A4</label>
+            <input
+              id="cliente-a4-cross-docking"
+              value={cliente}
+              onChange={(event) => setCliente(event.target.value)}
+              className="input"
+              placeholder="Nome do cliente"
+            />
+          </div>
+          <div>
+            <label htmlFor="entrada-staging-a4" className="label">Data de entrada no staging</label>
+            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5">
+              <CalendarClock className="h-4 w-4 shrink-0 text-ink-muted" />
+              <input
+                id="entrada-staging-a4"
+                type="datetime-local"
+                value={entradaStaging}
+                onChange={(event) => setEntradaStaging(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+              />
+            </div>
+          </div>
         </div>
-        <Badge tone="info">{exemplos.length.toLocaleString('pt-BR')} cenários</Badge>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        {exemplos.map((exemplo) => {
-          const ocupacaoMaxima = Math.max(exemplo.pallet.utilizacaoPeso, exemplo.pallet.utilizacaoAltura)
-
-          return (
-            <article key={exemplo.id} className="rounded-xl border border-line bg-surface p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-sm font-semibold text-brand">{exemplo.titulo}</h3>
-                    <Badge tone={tomDoPallet(exemplo.pallet)}>{gargaloLabel(exemplo.pallet.gargalo)}</Badge>
-                  </div>
-                  <p className="mt-1 text-sm text-ink-muted">{exemplo.descricao}</p>
-                </div>
-                <Badge tone="neutral">{exemplo.contexto}</Badge>
-              </div>
-
-              <div className="mt-3 grid gap-2 sm:grid-cols-4">
-                <MiniStat label="Pallet" value={exemplo.pallet.id.replace('DEMO-', '')} />
-                <MiniStat label="Peso" value={formatarKg(exemplo.pallet.pesoKg)} />
-                <MiniStat label="Cubagem" value={formatarM3(exemplo.pallet.cubagemM3)} />
-                <MiniStat label="Ocupação" value={formatarPercentual(ocupacaoMaxima)} />
-              </div>
-
-              <div className="mt-3">
-                <Pallet3DViewer pallet={exemplo.pallet} compacto embedded />
-              </div>
-            </article>
-          )
-        })}
-      </div>
-    </section>
+      )}
+    </Modal>
   )
+}
+
+function ExemplosPallet3D(_props: { exemplos: ExemploPallet3D[] }) {
+  return null
 }
 
 function KpiCard({
@@ -1147,7 +1404,9 @@ function MontagemListItem({
             </Badge>
           </div>
           <p className="mt-1 truncate text-sm text-ink-soft">{recebimento?.fornecedor ?? item.row.viagem.embarcador}</p>
-          <p className="mt-0.5 truncate text-xs text-ink-muted">{item.row.viagem.nf} · {item.row.viagem.cte}</p>
+          <p className="mt-0.5 truncate text-xs text-ink-muted">
+            {recebimento?.doca ?? 'Doca pendente'} · {item.row.viagem.nf} · {item.row.viagem.cte}
+          </p>
         </div>
         <div className="shrink-0 text-right">
           <p className="text-sm font-semibold text-brand">{item.pallets.length || '—'} PLT</p>
@@ -1181,12 +1440,20 @@ function MontagemDetalhe({
   item,
   confirmada,
   requisicoes,
+  ordemAlterada,
   onConfirmar,
+  onReiniciar,
+  onReordenarPallet,
+  onRestaurarOrdem,
 }: {
   item: RowMontagem
   confirmada: boolean
   requisicoes: RequisicaoImpressaoPallet[]
+  ordemAlterada: boolean
   onConfirmar: () => void
+  onReiniciar: () => void
+  onReordenarPallet: (palletId: string, direcao: 'up' | 'down') => void
+  onRestaurarOrdem: () => void
 }) {
   const recebimento = item.row.recebimento
   const maiorOcupacao = item.pallets.reduce(
@@ -1209,19 +1476,32 @@ function MontagemDetalhe({
               {item.row.viagem.embarcador} · {ownerName(recebimento?.ownerId ?? '')} · {item.row.viagem.nf}
             </p>
           </div>
-          <button
-            onClick={onConfirmar}
-            disabled={!!item.bloqueio || confirmada}
-            className={confirmada ? 'btn-outline text-ok' : 'btn-primary'}
-          >
-            {confirmada ? <CheckCircle2 className="h-4 w-4" /> : <Printer className="h-4 w-4" />}
-            {confirmada ? 'Aprovada · A4 geradas' : 'Aprovar e gerar A4'}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {confirmada && (
+              <button
+                type="button"
+                onClick={onReiniciar}
+                className="btn-outline text-warn"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reiniciar montagem
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onConfirmar}
+              disabled={!!item.bloqueio || confirmada}
+              className={confirmada ? 'btn-outline text-ok' : 'btn-primary'}
+            >
+              {confirmada ? <CheckCircle2 className="h-4 w-4" /> : <Printer className="h-4 w-4" />}
+              {confirmada ? 'Aprovada · A4 geradas' : 'Aprovar e gerar A4'}
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <Detail icon={<Truck className="h-4 w-4" />} label="Doca" value={recebimento?.doca ?? '—'} />
-          <Detail icon={<Tags className="h-4 w-4" />} label="Etiquetas" value={item.volumes.length.toLocaleString('pt-BR')} mono />
+          <Detail icon={<Tags className="h-4 w-4" />} label="Etiquetas" value={(item.volumes.length + item.volumesDevolucao.length).toLocaleString('pt-BR')} mono />
           <Detail icon={<Weight className="h-4 w-4" />} label="Peso" value={formatarKg(item.totalPesoKg)} mono />
           <Detail icon={<Ruler className="h-4 w-4" />} label="Cubagem" value={formatarM3(item.totalCubagemM3)} mono />
         </div>
@@ -1247,7 +1527,7 @@ function MontagemDetalhe({
       {!item.bloqueio && (
         <>
           <div className="grid gap-3 md:grid-cols-3">
-            <Metric label="Pallets" value={item.pallets.length.toLocaleString('pt-BR')} />
+            <Metric label="Pallets" value={(item.pallets.length + item.palletsDevolucao.length).toLocaleString('pt-BR')} />
             <Metric label="Capacidade útil" value={formatarM3(LIMITE_CUBAGEM_M3)} />
             <Metric label="Altura máxima de carga" value={formatarM(LIMITE_ALTURA_CARGA_M)} />
           </div>
@@ -1264,11 +1544,64 @@ function MontagemDetalhe({
             </div>
           </div>
 
+          {ordemAlterada && (
+            <div className="rounded-xl border border-primary/20 bg-primary-50 px-3 py-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-2 text-sm text-primary">
+                  <GripVertical className="h-4 w-4 shrink-0" />
+                  <span className="font-medium">Ordem dos pallets ajustada manualmente.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onRestaurarOrdem}
+                  disabled={confirmada}
+                  className="btn-outline px-3 py-1.5 text-xs"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Restaurar automatico
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-3">
-            {item.pallets.map((pallet) => (
-              <PalletCard key={pallet.id} pallet={pallet} />
+            {item.pallets.map((pallet, index) => (
+              <PalletCard
+                key={pallet.id}
+                pallet={pallet}
+                index={index}
+                total={item.pallets.length}
+                reorderDisabled={confirmada}
+                onMove={onReordenarPallet}
+              />
             ))}
           </div>
+
+          {item.palletsDevolucao.length > 0 && (
+            <div className="rounded-xl border border-bad/25 bg-bad-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-bad">Pallets de devolucao</h3>
+                  <p className="mt-1 text-sm text-bad">
+                    Produtos fisicos excedentes gerados por falta de etiqueta.
+                  </p>
+                </div>
+                <Badge tone="bad">{item.palletsDevolucao.length.toLocaleString('pt-BR')} pallet(s)</Badge>
+              </div>
+              <div className="mt-4 space-y-4">
+                {item.palletsDevolucao.map((pallet, index) => (
+                  <PalletCard
+                    key={pallet.id}
+                    pallet={pallet}
+                    index={index}
+                    total={item.palletsDevolucao.length}
+                    reorderDisabled
+                    onMove={() => undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {requisicoes.length > 0 && (
             <div className="rounded-xl border border-line bg-surface p-4">
@@ -1354,7 +1687,19 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
-function PalletCard({ pallet }: { pallet: PalletPlanejado }) {
+function PalletCard({
+  pallet,
+  index,
+  total,
+  reorderDisabled,
+  onMove,
+}: {
+  pallet: PalletPlanejado
+  index: number
+  total: number
+  reorderDisabled: boolean
+  onMove: (palletId: string, direcao: 'up' | 'down') => void
+}) {
   const tone = tomDoPallet(pallet)
   const etiquetasAmostra = pallet.volumes.slice(0, 8)
 
@@ -1363,8 +1708,12 @@ function PalletCard({ pallet }: { pallet: PalletPlanejado }) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
+            <span className="mono inline-flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-surface-sub text-xs font-semibold text-ink-muted">
+              {index + 1}
+            </span>
             <h3 className="mono text-sm font-semibold text-brand">{pallet.id}</h3>
             <Badge tone={tone}>{gargaloLabel(pallet.gargalo)}</Badge>
+            {pallet.tipo === 'devolucao' && <Badge tone="bad">Devolucao</Badge>}
           </div>
           <p className="mt-1 text-sm text-ink-muted">
             {pallet.volumes.length.toLocaleString('pt-BR')} etiqueta(s) · {pallet.skus.length.toLocaleString('pt-BR')} SKU(s)
@@ -1375,11 +1724,38 @@ function PalletCard({ pallet }: { pallet: PalletPlanejado }) {
           <MiniStat label="Cubagem" value={formatarM3(pallet.cubagemM3)} />
           <MiniStat label="Altura" value={formatarM(pallet.alturaM)} />
         </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onMove(pallet.id, 'up')}
+            disabled={reorderDisabled || index === 0}
+            aria-label={`Mover ${pallet.id} para cima`}
+            title="Mover para cima"
+            className="btn-outline h-9 w-9 p-0"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onMove(pallet.id, 'down')}
+            disabled={reorderDisabled || index === total - 1}
+            aria-label={`Mover ${pallet.id} para baixo`}
+            title="Mover para baixo"
+            className="btn-outline h-9 w-9 p-0"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <UsoBarra label="Uso de peso" value={pallet.utilizacaoPeso} tone={pallet.utilizacaoPeso > 90 ? 'warn' : 'primary'} />
         <UsoBarra label="Uso de altura/cubagem" value={pallet.utilizacaoAltura} tone={pallet.utilizacaoAltura > 90 ? 'warn' : 'accent'} />
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs font-semibold text-brand">Visualização do pallet</p>
+        <Badge tone="info">3D leve em escala real</Badge>
       </div>
 
       <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1.08fr)_minmax(520px,0.92fr)]">
@@ -1466,9 +1842,9 @@ function Pallet3DViewer({
         <Canvas
           key={cameraKey}
           className="h-full w-full"
-          shadows
-          dpr={[1, 1.5]}
-          gl={{ antialias: true, preserveDrawingBuffer: true }}
+          frameloop="demand"
+          dpr={1}
+          gl={{ antialias: false, preserveDrawingBuffer: false, powerPreference: 'low-power' }}
           camera={{ position: [2.25, 2.05, 2.55], fov: 43 }}
         >
           <Pallet3DScene layout={layout} hovered={hovered} onHover={setHovered} />
@@ -1536,7 +1912,7 @@ function Pallet3DScene({
     <>
       <color attach="background" args={['#eef4f8']} />
       <ambientLight intensity={0.72} />
-      <directionalLight position={[3.5, 6, 4]} intensity={1.2} castShadow />
+      <directionalLight position={[3.5, 6, 4]} intensity={1.2} />
       <directionalLight position={[-4, 3, -3]} intensity={0.35} />
 
       <Grid
@@ -1551,16 +1927,8 @@ function Pallet3DScene({
 
       <PalletBase3D />
       <PalletCapacity3D layout={layout} />
-
-      {layout.caixas.map((caixa) => (
-        <Package3D
-          key={caixa.id}
-          caixa={caixa}
-          muted={!!hovered && hovered.id !== caixa.id}
-          active={hovered?.id === caixa.id}
-          onHover={onHover}
-        />
-      ))}
+      <PalletPackagesInstanced3D caixas={layout.caixas} hovered={hovered} onHover={onHover} />
+      <PalletPackageOutline3D caixa={hovered} />
 
       {hovered && (
         <Html position={[hovered.x, hovered.y + hovered.alturaM / 2 + 0.08, hovered.z]} center distanceFactor={4.8}>
@@ -1583,6 +1951,69 @@ function Pallet3DScene({
         target={[0, 1.1, 0]}
       />
     </>
+  )
+}
+
+function PalletPackagesInstanced3D({
+  caixas,
+  hovered,
+  onHover,
+}: {
+  caixas: CaixaPallet3D[]
+  hovered: CaixaPallet3D | null
+  onHover: (caixa: CaixaPallet3D | null) => void
+}) {
+  const meshRef = useRef<THREE.InstancedMesh>(null)
+  const transforms = useMemo(() => criarTransformacoesCaixas3D(caixas), [caixas])
+  const matrixObject = useMemo(() => new THREE.Object3D(), [])
+  const color = useMemo(() => new THREE.Color(), [])
+
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+
+    transforms.forEach((transform, index) => {
+      matrixObject.position.set(...transform.position)
+      matrixObject.scale.set(...transform.scale)
+      matrixObject.updateMatrix()
+      mesh.setMatrixAt(index, matrixObject.matrix)
+      mesh.setColorAt(index, color.set(transform.color))
+    })
+
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  }, [color, matrixObject, transforms])
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, Math.max(transforms.length, 1)]}
+      onPointerMove={(event) => {
+        event.stopPropagation()
+        const instanceId = event.instanceId
+        if (instanceId === undefined) return
+        const caixa = caixas[instanceId]
+        if (caixa && hovered?.id !== caixa.id) onHover(caixa)
+      }}
+      onPointerOut={(event) => {
+        event.stopPropagation()
+        onHover(null)
+      }}
+    >
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial vertexColors roughness={0.58} metalness={0.04} />
+    </instancedMesh>
+  )
+}
+
+function PalletPackageOutline3D({ caixa }: { caixa: CaixaPallet3D | null }) {
+  if (!caixa) return null
+
+  return (
+    <mesh position={[caixa.x, caixa.y, caixa.z]}>
+      <boxGeometry args={[caixa.comprimentoM + 0.018, caixa.alturaM + 0.018, caixa.larguraM + 0.018]} />
+      <meshBasicMaterial color="#ffffff" wireframe transparent opacity={0.95} />
+    </mesh>
   )
 }
 
@@ -1663,48 +2094,6 @@ function PalletCapacity3D({ layout }: { layout: LayoutPallet3D }) {
   )
 }
 
-function Package3D({
-  caixa,
-  muted,
-  active,
-  onHover,
-}: {
-  caixa: CaixaPallet3D
-  muted: boolean
-  active: boolean
-  onHover: (caixa: CaixaPallet3D | null) => void
-}) {
-  return (
-    <RoundedBox
-      args={[caixa.comprimentoM, caixa.alturaM, caixa.larguraM]}
-      position={[caixa.x, caixa.y, caixa.z]}
-      radius={Math.min(0.018, caixa.comprimentoM * 0.08, caixa.larguraM * 0.08, caixa.alturaM * 0.08)}
-      smoothness={3}
-      castShadow
-      receiveShadow
-      onPointerOver={(event) => {
-        event.stopPropagation()
-        onHover(caixa)
-      }}
-      onPointerOut={(event) => {
-        event.stopPropagation()
-        onHover(null)
-      }}
-    >
-      <meshStandardMaterial
-        color={caixa.cor}
-        roughness={0.56}
-        metalness={0.04}
-        emissive={caixa.cor}
-        emissiveIntensity={active ? 0.18 : 0.035}
-        transparent
-        opacity={muted ? 0.5 : 0.94}
-      />
-      <Edges color={active ? '#ffffff' : '#172033'} threshold={15} />
-    </RoundedBox>
-  )
-}
-
 function A4PrintPreview({ requisicao }: { requisicao: RequisicaoImpressaoPallet }) {
   return (
     <div className="rounded-xl border border-line bg-surface-sub p-3">
@@ -1721,6 +2110,9 @@ function A4PrintPreview({ requisicao }: { requisicao: RequisicaoImpressaoPallet 
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Folha A4 horizontal</p>
             <h4 className="mono mt-1 text-2xl font-black leading-none">{requisicao.palletId}</h4>
+            <p className="mt-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
+              Destino: <span className="text-slate-950">{requisicao.destinoLabel}</span>
+            </p>
             <p className="mt-1 text-xs font-semibold text-slate-600">{requisicao.recebimentoId} · {requisicao.viagemId}</p>
           </div>
           <div className="text-right">
@@ -1737,6 +2129,21 @@ function A4PrintPreview({ requisicao }: { requisicao: RequisicaoImpressaoPallet 
           <A4Metric label="Unidades" value={requisicao.unidades.toLocaleString('pt-BR')} />
           <A4Metric label="Peso" value={formatarKg(requisicao.pesoKg)} />
         </div>
+
+        {requisicao.destino === 'cross-docking' && (
+          <div className="mt-3 grid grid-cols-2 gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">Cliente no A4</p>
+              <p className="mt-0.5 truncate text-xs font-black text-slate-950">{requisicao.cliente}</p>
+            </div>
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">Data de entrada no staging</p>
+              <p className="mono mt-0.5 text-xs font-black text-slate-950">
+                {requisicao.entradaStagingIso ? formatarDataHora(requisicao.entradaStagingIso) : '—'}
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="mt-3 overflow-hidden rounded border border-slate-300">
           <table className="w-full text-left text-[11px]">
@@ -1760,6 +2167,23 @@ function A4PrintPreview({ requisicao }: { requisicao: RequisicaoImpressaoPallet 
             </tbody>
           </table>
         </div>
+
+        {requisicao.tipo === 'normal' && (
+          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-300 pt-3 text-[12px] font-black uppercase text-slate-700">
+            <span>[ ] Aguardando para envio</span>
+            <span>[ ] Segue para destinatario</span>
+            <span>[ ] Devolucao</span>
+          </div>
+        )}
+
+        {requisicao.tipo === 'devolucao' && (
+          <div className="mt-3 border-t-4 border-red-700 pt-2 text-center">
+            <p className="text-[34px] font-black uppercase leading-none text-red-700">DEVOLUCAO</p>
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+              Pallet exclusivo para produto excedente sem etiqueta documental original.
+            </p>
+          </div>
+        )}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
           <span>Unidades calculadas pela quebra da etiqueta/caixa matriz</span>

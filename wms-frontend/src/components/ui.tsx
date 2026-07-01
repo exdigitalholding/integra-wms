@@ -2,11 +2,13 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircle2, AlertTriangle, Info, XCircle, X } from 'lucide-react'
+import { Check, CheckCircle2, AlertTriangle, ChevronDown, Info, XCircle, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useStore } from '../store/useStore'
 
@@ -301,5 +303,143 @@ export function EmptyState({ icon, title, text }: { icon: ReactNode; title: stri
       <p className="font-medium text-ink-soft">{title}</p>
       {text && <p className="text-sm text-ink-muted mt-1 max-w-sm">{text}</p>}
     </div>
+  )
+}
+
+/* ---------------- SelectField ---------------- */
+export type SelectFieldOption = {
+  value: string
+  label: ReactNode
+  disabled?: boolean
+}
+
+export function SelectField({
+  id,
+  value,
+  onChange,
+  options,
+  className,
+  placeholder = 'Selecione',
+}: {
+  id?: string
+  value: string | number
+  onChange: (value: string) => void
+  options: SelectFieldOption[]
+  className?: string
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const selectedValue = String(value)
+  const selected = options.find((option) => option.value === selectedValue)
+
+  useEffect(() => {
+    if (!open) return
+
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const gap = 6
+      const spaceBelow = window.innerHeight - rect.bottom - 12
+      const spaceAbove = rect.top - 12
+      const maxHeight = Math.max(160, Math.min(280, Math.max(spaceBelow, spaceAbove) - gap))
+      const opensUp = spaceBelow < 180 && spaceAbove > spaceBelow
+
+      setMenuStyle({
+        left: rect.left,
+        top: opensUp ? Math.max(12, rect.top - maxHeight - gap) : rect.bottom + gap,
+        width: rect.width,
+        maxHeight,
+      })
+    }
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    updatePosition()
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        id={id}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            setOpen(true)
+          }
+        }}
+        className={cn('input flex items-center justify-between gap-3 text-left', className)}
+      >
+        <span className={cn('min-w-0 flex-1 truncate', !selected && 'text-ink-muted')}>
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronDown
+          className={cn('h-4 w-4 shrink-0 text-primary transition-transform', open && 'rotate-180 text-accent')}
+        />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            style={menuStyle}
+            className="fixed z-[80] overflow-y-auto rounded-2xl border border-line bg-surface p-1 shadow-pop animate-scale-in"
+          >
+            {options.map((option) => {
+              const active = option.value === selectedValue
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  disabled={option.disabled}
+                  onClick={() => {
+                    onChange(option.value)
+                    setOpen(false)
+                    buttonRef.current?.focus()
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
+                    active
+                      ? 'bg-primary-50 text-primary'
+                      : 'text-ink-soft hover:bg-slate-50 hover:text-brand',
+                    option.disabled && 'cursor-not-allowed opacity-50 hover:bg-transparent',
+                  )}
+                >
+                  <span className="min-w-0 truncate">{option.label}</span>
+                  {active && <Check className="h-4 w-4 shrink-0 text-accent" />}
+                </button>
+              )
+            })}
+          </div>,
+          document.body,
+        )}
+    </>
   )
 }

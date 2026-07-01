@@ -27,6 +27,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir que o Integra Coletor use a camera para bipar etiquetas, documentos e enderecos."
+        }
+      ]
+    ]
   }
 }

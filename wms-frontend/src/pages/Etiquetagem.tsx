@@ -13,12 +13,21 @@ import {
   Truck,
   Weight,
 } from 'lucide-react'
-import { Badge, EmptyState, Modal, PageHeader, Tab, Tabs, type Tone } from '../components/ui'
+import { Badge, EmptyState, Modal, PageHeader, SelectField, Tab, Tabs, type Tone } from '../components/ui'
 import { VIAGENS_ETIQUETAGEM, ownerName } from '../lib/mock'
 import { resumoSkusPendentes, skusPendentesDoRecebimento } from '../lib/skuControle'
 import { cn } from '../lib/utils'
-import { gerarZplLote, type ZplPrinterConfig } from '../lib/zpl'
 import { useStore } from '../store/useStore'
+import {
+  deveGerarEtiquetaDivergente,
+  selecionarEtiquetasCanceladasPorSobra,
+  tipoDivergenciaMeta as tipoDivergenciaRegras,
+  tituloEtiquetaDivergente,
+  type EtiquetaDivergente,
+  type ItemDivergenciaEtiqueta,
+  type RegistroDivergenciaEtiqueta,
+  type TipoDivergenciaEtiqueta,
+} from '../lib/divergenciaEtiquetagem'
 import {
   calcularEtiquetas,
   configDoSku,
@@ -41,7 +50,6 @@ import type {
 } from '../lib/types'
 
 type AbaEtiquetagem = 'prontas' | 'bloqueadas' | 'todas'
-type TipoDivergenciaEtiqueta = 'faltou-etiqueta' | 'sobrou-etiqueta'
 
 interface HistoricoReemissaoEtiqueta {
   id: string
@@ -50,37 +58,6 @@ interface HistoricoReemissaoEtiqueta {
   quandoIso: string
   motivo: string
   etiquetas: number
-}
-
-interface ItemDivergenciaEtiqueta {
-  skuCodigo: string
-  descricao: string
-  quantidade: number
-}
-
-interface EtiquetaDivergente extends EtiquetaVolume {
-  divergenciaId: string
-  tipoDivergencia: TipoDivergenciaEtiqueta
-  instrucao: string
-}
-
-interface RegistroDivergenciaEtiqueta {
-  id: string
-  viagemId: string
-  recebimentoId: string
-  usuario: string
-  quandoIso: string
-  tipo: TipoDivergenciaEtiqueta
-  itens: ItemDivergenciaEtiqueta[]
-  etiquetasGeradas: EtiquetaDivergente[]
-  envioAdministrativo: {
-    status: 'enviado-mock'
-    destino: 'Administrativo / Tratativa fiscal'
-    recebimentoId: string
-    documento: string
-    fornecedor: string
-    owner: string
-  }
 }
 
 interface DivergenciaEtiquetaInput {
@@ -96,12 +73,12 @@ const documentoMeta: Record<StatusDocumentoEtiquetagem, { label: string; tone: T
 
 const tipoDivergenciaMeta: Record<TipoDivergenciaEtiqueta, { label: string; tone: Tone; instrucao: string }> = {
   'faltou-etiqueta': {
-    label: 'Faltou etiqueta',
+    label: tipoDivergenciaRegras['faltou-etiqueta'].label,
     tone: 'bad',
     instrucao: 'Fixar esta etiqueta no item divergente e manter o volume em tratativa até validação administrativa.',
   },
   'sobrou-etiqueta': {
-    label: 'Sobrou etiqueta',
+    label: tipoDivergenciaRegras['sobrou-etiqueta'].label,
     tone: 'warn',
     instrucao: 'Anexar esta etiqueta ao conjunto excedente e separar fisicamente para conferência do administrativo.',
   },
@@ -129,7 +106,7 @@ function calcularEtiquetasDivergentes(
   tipo: TipoDivergenciaEtiqueta,
   emissaoIso: string,
 ) {
-  if (!row.recebimento) return []
+  if (!row.recebimento || !deveGerarEtiquetaDivergente(tipo)) return []
   const totalEtiquetas = itens.reduce((total, item) => total + item.quantidade, 0)
   let sequenciaGlobal = 0
 
@@ -142,7 +119,8 @@ function calcularEtiquetasDivergentes(
         id,
         divergenciaId: registroId,
         tipoDivergencia: tipo,
-        instrucao: tipoDivergenciaMeta[tipo].instrucao,
+        tituloDivergencia: tituloEtiquetaDivergente(tipo) ?? 'DEVOLUCAO',
+        instrucao: tipoDivergenciaRegras[tipo].instrucao,
         viagemId: row.viagem.id,
         recebimentoId: row.recebimento!.id,
         skuCodigo: item.skuCodigo,
@@ -166,21 +144,21 @@ function calcularEtiquetasDivergentes(
 }
 
 export default function Etiquetagem() {
-  const { recebimentos, ownerId, toast, skusControle, usuario } = useStore()
+  const {
+    recebimentos,
+    ownerId,
+    toast,
+    skusControle,
+    usuario,
+    divergenciasEtiquetagem,
+    registrarDivergenciaEtiquetagem,
+  } = useStore()
   const [aba, setAba] = useState<AbaEtiquetagem>('prontas')
   const [busca, setBusca] = useState('')
   const [selecionadaId, setSelecionadaId] = useState('')
   const [historicoReemissao, setHistoricoReemissao] = useState<Record<string, HistoricoReemissaoEtiqueta[]>>({})
   const [reemissaoAberta, setReemissaoAberta] = useState<ViagemComRecebimento | null>(null)
   const [divergenciaAberta, setDivergenciaAberta] = useState<ViagemComRecebimento | null>(null)
-  const [historicoDivergencias, setHistoricoDivergencias] = useState<Record<string, RegistroDivergenciaEtiqueta[]>>({})
-  const [zplConfig, setZplConfig] = useState<ZplPrinterConfig>({
-    host: '192.168.15.80',
-    port: 9100,
-    dpi: 203,
-    widthMm: 70,
-    heightMm: 40,
-  })
   const hojeIso = isoLocal()
 
   const rows = useMemo<ViagemComRecebimento[]>(() => {
@@ -217,7 +195,9 @@ export default function Etiquetagem() {
 
   const selecionada = filtradas.find((row) => row.viagem.id === selecionadaId) ?? filtradas[0] ?? rows[0] ?? null
   const historicoSelecionado = selecionada ? historicoReemissao[selecionada.viagem.id] ?? [] : []
-  const divergenciasSelecionadas = selecionada ? historicoDivergencias[selecionada.viagem.id] ?? [] : []
+  const divergenciasSelecionadas = selecionada
+    ? divergenciasEtiquetagem.filter((registro) => registro.viagemId === selecionada.viagem.id)
+    : []
   const emissaoSelecionada = selecionada ? emissaoAtualIso(selecionada, historicoSelecionado) : `${hojeIso}T00:00:00.000`
   const etiquetas = useMemo(
     () =>
@@ -269,7 +249,7 @@ export default function Etiquetagem() {
     toast({
       tipo: 'sucesso',
       titulo: 'Re-emissão registrada',
-      texto: `${row.viagem.id} · ${totalEtiquetas} etiquetas · ZPL ${zplConfig.host}:${zplConfig.port}`,
+      texto: `${row.viagem.id} · ${totalEtiquetas} etiquetas enviadas para impressão`,
     })
     setReemissaoAberta(null)
   }
@@ -287,6 +267,17 @@ export default function Etiquetagem() {
     const quandoIso = new Date().toISOString()
     const registroId = `DIV-${row.viagem.id}-${Date.now()}`
     const etiquetasGeradas = calcularEtiquetasDivergentes(row, itens, registroId, input.tipo, quandoIso)
+    const etiquetasCanceladasIds =
+      input.tipo === 'sobrou-etiqueta'
+        ? selecionarEtiquetasCanceladasPorSobra(
+            calcularEtiquetas(
+              row.viagem,
+              row.recebimento,
+              emissaoAtualIso(row, historicoReemissao[row.viagem.id] ?? []),
+            ),
+            itens,
+          )
+        : []
     const registro: RegistroDivergenciaEtiqueta = {
       id: registroId,
       viagemId: row.viagem.id,
@@ -295,6 +286,7 @@ export default function Etiquetagem() {
       quandoIso,
       tipo: input.tipo,
       itens,
+      etiquetasCanceladasIds,
       etiquetasGeradas,
       envioAdministrativo: {
         status: 'enviado-mock',
@@ -306,10 +298,7 @@ export default function Etiquetagem() {
       },
     }
 
-    setHistoricoDivergencias((atual) => ({
-      ...atual,
-      [row.viagem.id]: [registro, ...(atual[row.viagem.id] ?? [])],
-    }))
+    registrarDivergenciaEtiquetagem(registro)
     toast({
       tipo: 'aviso',
       titulo: 'Divergência enviada ao administrativo',
@@ -388,8 +377,6 @@ export default function Etiquetagem() {
               emissaoAutomaticaIso={emissaoAutomaticaIso(selecionada)}
               emissaoAtualIso={emissaoSelecionada}
               skusControle={skusControle}
-              zplConfig={zplConfig}
-              onZplConfigChange={setZplConfig}
               onReemitir={() => setReemissaoAberta(selecionada)}
               onDivergencia={() => setDivergenciaAberta(selecionada)}
             />
@@ -500,8 +487,6 @@ function PainelEtiquetas({
   emissaoAutomaticaIso,
   emissaoAtualIso,
   skusControle,
-  zplConfig,
-  onZplConfigChange,
   onReemitir,
   onDivergencia,
 }: {
@@ -513,8 +498,6 @@ function PainelEtiquetas({
   emissaoAutomaticaIso: string
   emissaoAtualIso: string
   skusControle: SkuControle[]
-  zplConfig: ZplPrinterConfig
-  onZplConfigChange: (config: ZplPrinterConfig) => void
   onReemitir: () => void
   onDivergencia: () => void
 }) {
@@ -544,7 +527,6 @@ function PainelEtiquetas({
           etiquetas: item.etiquetasGeradas.length,
         })),
       ]
-  const zplPayload = etiquetas.length > 0 ? gerarZplLote(etiquetas, zplConfig) : ''
 
   return (
     <div className="space-y-4">
@@ -619,81 +601,6 @@ function PainelEtiquetas({
             <span>{bloqueio}</span>
           </div>
         )}
-      </div>
-
-      <div className="rounded-xl border border-line bg-surface overflow-hidden">
-        <div className="flex flex-col gap-1 border-b border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-sm font-semibold text-brand">Canal ZPL da impressora</h3>
-          <Badge tone={bloqueio ? 'neutral' : 'info'}>{bloqueio ? 'Aguardando liberação' : `${zplConfig.host}:${zplConfig.port}`}</Badge>
-        </div>
-        <div className="space-y-4 p-4">
-          <div className="grid gap-3 md:grid-cols-[1.2fr_0.6fr_0.6fr_0.6fr_0.6fr]">
-            <div>
-              <label htmlFor="zpl-host" className="label">Host/IP Zebra</label>
-              <input
-                id="zpl-host"
-                value={zplConfig.host}
-                onChange={(event) => onZplConfigChange({ ...zplConfig, host: event.target.value })}
-                className="input mono"
-              />
-            </div>
-            <div>
-              <label htmlFor="zpl-port" className="label">Porta</label>
-              <input
-                id="zpl-port"
-                type="number"
-                min={1}
-                value={zplConfig.port}
-                onChange={(event) => onZplConfigChange({ ...zplConfig, port: Number(event.target.value || 0) })}
-                className="input mono"
-              />
-            </div>
-            <div>
-              <label htmlFor="zpl-dpi" className="label">DPI</label>
-              <select
-                id="zpl-dpi"
-                value={zplConfig.dpi}
-                onChange={(event) => onZplConfigChange({ ...zplConfig, dpi: Number(event.target.value) as ZplPrinterConfig['dpi'] })}
-                className="input"
-              >
-                <option value={203}>203</option>
-                <option value={300}>300</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="zpl-width" className="label">Largura mm</label>
-              <input
-                id="zpl-width"
-                type="number"
-                min={70}
-                value={zplConfig.widthMm}
-                onChange={(event) => onZplConfigChange({ ...zplConfig, widthMm: Number(event.target.value || 0) })}
-                className="input mono"
-              />
-            </div>
-            <div>
-              <label htmlFor="zpl-height" className="label">Altura mm</label>
-              <input
-                id="zpl-height"
-                type="number"
-                min={40}
-                value={zplConfig.heightMm}
-                onChange={(event) => onZplConfigChange({ ...zplConfig, heightMm: Number(event.target.value || 0) })}
-                className="input mono"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="zpl-preview" className="label">Payload ZPL do lote</label>
-            <textarea
-              id="zpl-preview"
-              readOnly
-              value={zplPayload}
-              className="input min-h-44 font-mono text-xs leading-5"
-            />
-          </div>
-        </div>
       </div>
 
       <div className="rounded-xl border border-line bg-surface overflow-hidden">
@@ -843,9 +750,9 @@ function PainelEtiquetas({
         </div>
         <div className="max-h-[560px] overflow-y-auto bg-surface-sub p-4">
           {etiquetas.length > 0 ? (
-            <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+            <div className="flex flex-wrap items-start gap-5 overflow-x-auto pb-2">
               {etiquetas.map((etiqueta) => (
-                <EtiquetaCard key={etiqueta.id} etiqueta={etiqueta} />
+                <EtiquetaPreviewCard key={etiqueta.id} etiqueta={etiqueta} />
               ))}
             </div>
           ) : (
@@ -867,7 +774,7 @@ function PainelEtiquetas({
                 O operador deve aplicar estas etiquetas apenas nos itens separados como divergentes.
               </p>
             </div>
-            <Badge tone="bad">DIVERGENTE</Badge>
+            <Badge tone="bad">DEVOLUCAO</Badge>
           </div>
           <div className="border-b border-bad/20 bg-bad-50 px-4 py-3 text-sm text-bad">
             Coloque a etiqueta vermelha no SKU indicado e mantenha o item fisicamente apartado até a baixa da tratativa administrativa.
@@ -1002,7 +909,7 @@ function DivergenciaEtiquetaModal({
             onClick={() => onConfirmar({ tipo, itens: itensValidos })}
             className="btn-primary"
           >
-            <Send className="h-4 w-4" /> Enviar e gerar etiquetas
+            <Send className="h-4 w-4" /> {tipo === 'faltou-etiqueta' ? 'Enviar e gerar DEVOLUCAO' : 'Enviar ao administrativo'}
           </button>
         </>
       }
@@ -1019,15 +926,15 @@ function DivergenciaEtiquetaModal({
 
         <div>
           <label htmlFor="tipo-divergencia-etiqueta" className="label">Tipo de divergência</label>
-          <select
+          <SelectField
             id="tipo-divergencia-etiqueta"
             value={tipo}
-            onChange={(event) => setTipo(event.target.value as TipoDivergenciaEtiqueta)}
-            className="input"
-          >
-            <option value="faltou-etiqueta">Faltou etiqueta</option>
-            <option value="sobrou-etiqueta">Sobrou etiqueta</option>
-          </select>
+            onChange={(value) => setTipo(value as TipoDivergenciaEtiqueta)}
+            options={[
+              { value: 'faltou-etiqueta', label: 'Faltou etiqueta' },
+              { value: 'sobrou-etiqueta', label: 'Sobrou etiqueta' },
+            ]}
+          />
           <p className="mt-1.5 text-xs text-ink-muted">
             O envio para o administrativo ainda é mockado: o registro fica salvo nesta tela com os dados do recebimento e os SKUs informados.
           </p>
@@ -1045,18 +952,16 @@ function DivergenciaEtiquetaModal({
               <div key={item.id} className="grid gap-2 sm:grid-cols-[1fr_120px_40px]">
                 <div>
                   <label htmlFor={`sku-divergente-${item.id}`} className="label">SKU</label>
-                  <select
+                  <SelectField
                     id={`sku-divergente-${item.id}`}
                     value={item.skuCodigo}
-                    onChange={(event) => atualizarItem(item.id, { skuCodigo: event.target.value })}
+                    onChange={(value) => atualizarItem(item.id, { skuCodigo: value })}
                     className="input mono"
-                  >
-                    {skuOptions.map((sku) => (
-                      <option key={sku.skuCodigo} value={sku.skuCodigo}>
-                        {sku.skuCodigo} · {sku.descricao}
-                      </option>
-                    ))}
-                  </select>
+                    options={skuOptions.map((sku) => ({
+                      value: sku.skuCodigo,
+                      label: `${sku.skuCodigo} · ${sku.descricao}`,
+                    }))}
+                  />
                 </div>
                 <div>
                   <label htmlFor={`qtd-divergente-${item.id}`} className="label">Quantidade</label>
@@ -1149,62 +1054,108 @@ function CodigoBarras128({ value, className }: { value: string; className?: stri
   )
 }
 
-function EtiquetaCard({ etiqueta }: { etiqueta: EtiquetaVolume }) {
-  const [origem = '', destino = ''] = etiqueta.origemDestino.split('/')
+function CodigoBarras128Vertical({ value, className }: { value: string; className?: string }) {
+  const { bars, width } = code128Bars(value)
 
   return (
-    <div className="h-[4cm] w-[7cm] overflow-hidden rounded-[2px] border border-slate-950 bg-white text-slate-950 shadow-sm">
-      <div className="grid h-full grid-cols-[15mm_1fr_9mm]">
+    <svg
+      className={className}
+      viewBox={`0 0 52 ${width}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={`Codigo de barras ${value}`}
+      shapeRendering="crispEdges"
+    >
+      <rect width="52" height={width} fill="#fff" />
+      {bars.map((bar, index) => (
+        <rect key={`${bar.x}-${index}`} x="0" y={bar.x} width="52" height={bar.width} fill="#050505" />
+      ))}
+    </svg>
+  )
+}
+
+function codigoPrincipalEtiqueta(id: string) {
+  const numerico = id.replace(/\D/g, '')
+  if (numerico.length >= 5) return numerico.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return id
+}
+
+function EtiquetaPreviewCard({ etiqueta }: { etiqueta: EtiquetaVolume }) {
+  return (
+    <div className="h-[4.8cm] w-[8.4cm] shrink-0 overflow-visible">
+      <div className="origin-top-left scale-[1.2]">
+        <EtiquetaCard etiqueta={etiqueta} />
+      </div>
+    </div>
+  )
+}
+
+function EtiquetaCard({ etiqueta }: { etiqueta: EtiquetaVolume }) {
+  const [origem = '', destino = ''] = etiqueta.origemDestino.split('/')
+  const codigoPrincipal = codigoPrincipalEtiqueta(etiqueta.id)
+
+  return (
+    <div className="h-[4cm] w-[7cm] overflow-hidden rounded-[1px] border border-neutral-950 bg-white text-neutral-950 shadow-sm">
+      <div className="grid h-full grid-cols-[16mm_1fr_12mm]">
         <div className="relative h-full border-r border-slate-950 bg-white">
-          <CodigoBarras128
+          <CodigoBarras128Vertical
             value={etiqueta.id}
-            className="absolute bottom-[5.5mm] left-[2mm] h-[11mm] w-[31mm] origin-bottom-left -rotate-90"
+            className="absolute left-[1.2mm] top-[5mm] h-[28mm] w-[13mm]"
           />
-          <span className="mono absolute bottom-[1mm] left-[1mm] right-[1mm] truncate text-center text-[7px] font-semibold leading-none">
+          <span className="mono absolute bottom-[1mm] left-[1mm] right-[1mm] truncate text-center text-[6.5px] font-semibold leading-none">
             {etiqueta.id}
           </span>
         </div>
 
-        <div className="min-w-0 px-[1.5mm] py-[1.2mm]">
+        <div className="min-w-0 px-[1.2mm] py-[0.8mm]">
           <div className="flex items-start justify-between gap-[1mm]">
-            <span className="mono truncate text-[7px] font-semibold leading-none">{etiqueta.viagemId}</span>
-            <span className="mono shrink-0 text-[7px] font-semibold leading-none">{formatarData(etiqueta.emissaoIso)}</span>
+            <span className="mono truncate text-[6.2px] font-bold leading-none">{etiqueta.nf}</span>
+            <span className="mono shrink-0 text-[6.8px] font-black leading-none">{formatarData(etiqueta.emissaoIso)}</span>
+          </div>
+
+          <div className="mt-[0.9mm] flex items-end justify-between gap-[1mm]">
+            <span className="mono text-[23px] font-black leading-[0.82] tracking-normal">D-{destino}</span>
+            <span className="mono text-[23px] font-black leading-[0.82] tracking-normal">O-{origem}</span>
+          </div>
+
+          <div className="mt-[1.1mm] flex items-start justify-between gap-[1.2mm]">
+            <p className="truncate text-[6.5px] font-black uppercase leading-none">{etiqueta.embarcador}</p>
+            <p className="shrink-0 text-[5.7px] font-semibold leading-none">Reimpressao: N</p>
           </div>
 
           <div className="mt-[1mm] flex items-end justify-between gap-[1mm]">
-            <span className="mono text-[20px] font-black leading-[0.85] tracking-normal">D-{destino}</span>
-            <span className="mono text-[20px] font-black leading-[0.85] tracking-normal">O-{origem}</span>
+            <span className="mono truncate text-[17px] font-black leading-[0.88]">{codigoPrincipal}</span>
+            <span className="mono shrink-0 text-[13px] font-black leading-[0.9]">{etiqueta.sequencia}</span>
           </div>
 
-          <div className="mt-[1mm] flex items-start justify-between gap-[1mm]">
-            <span className="mono text-[15px] font-black leading-none">{etiqueta.id}</span>
-            <span className="mono text-[12px] font-black leading-none">{etiqueta.sequencia}</span>
-          </div>
-
-          <div className="mt-[1.2mm] grid grid-cols-[1fr_14mm] gap-[1.2mm] border-b border-slate-950 pb-[0.7mm]">
+          <div className="mt-[1.1mm] grid grid-cols-[1fr_13mm] gap-[1mm] border-t border-neutral-950 pt-[0.7mm]">
             <div className="min-w-0">
-              <p className="mono truncate text-[8px] font-semibold leading-none">{etiqueta.cte}</p>
-              <p className="mt-[0.5mm] truncate text-[7px] font-semibold leading-none">{etiqueta.skuCodigo}</p>
+              <p className="mono truncate text-[6.8px] font-bold leading-none">{etiqueta.cte}</p>
+              <p className="mt-[0.4mm] truncate text-[5.8px] font-bold leading-none">{etiqueta.skuCodigo}</p>
             </div>
             <div className="text-right">
-              <p className="text-[6px] font-semibold uppercase leading-none">Kg.Calc.</p>
-              <p className="mono text-[9px] font-bold leading-none">{etiqueta.kg.replace(/\s?kg$/, '')}</p>
+              <p className="text-[5.7px] font-semibold leading-none">Kg.Calc.</p>
+              <p className="mono mt-[0.2mm] text-[6.8px] font-bold leading-none">{etiqueta.kg.replace(/\s?kg$/, '')}</p>
             </div>
           </div>
 
-          <div className="mt-[1mm] min-w-0">
-            <p className="truncate text-[8px] font-black uppercase leading-none">{etiqueta.destinatario}</p>
-            <p className="mt-[0.8mm] line-clamp-2 text-[7px] font-semibold uppercase leading-[1.08]">{etiqueta.endereco}</p>
-            <p className="mono mt-[0.8mm] truncate text-[7px] font-bold leading-none">
-              {etiqueta.quantidadeNoVolume} un · {etiqueta.sequenciaSku}
+          <div className="mt-[0.5mm] min-w-0 border-t border-neutral-950 pt-[0.7mm]">
+            <p className="truncate text-[7.2px] font-black uppercase leading-none">{etiqueta.destinatario}</p>
+            <p className="mt-[0.6mm] line-clamp-2 text-[6.4px] font-semibold uppercase leading-[1.05]">{etiqueta.endereco}</p>
+            <p className="mono mt-[0.5mm] truncate text-[5.8px] font-bold leading-none">
+              {etiqueta.skuCodigo} - {etiqueta.quantidadeNoVolume} un - {etiqueta.sequenciaSku}
             </p>
           </div>
         </div>
 
-        <div className="grid h-full place-items-center bg-[#1d2f91] text-white">
-          <div className="flex -rotate-90 items-center gap-[1mm] whitespace-nowrap">
-            <span className="text-[10px] font-black tracking-normal">INTEGRA</span>
-            <span className="text-[6px] font-semibold uppercase tracking-normal">WMS</span>
+        <div className="relative h-full overflow-hidden bg-[#1d2f91] text-white">
+          <div className="absolute left-1/2 top-[7mm] z-10 flex -translate-x-1/2 items-center gap-[0.6mm]">
+            <span className="block h-[1.7mm] w-[3.2mm] -skew-x-12 bg-[#00d6bd]" />
+            <span className="block h-[1.7mm] w-[3.2mm] skew-x-12 bg-[#00b8d9]" />
+          </div>
+          <div className="absolute left-1/2 top-1/2 z-10 h-[8mm] w-[35mm] -translate-x-1/2 -translate-y-1/2 rotate-90 text-center">
+            <span className="block text-[13px] font-black italic leading-[0.9] tracking-normal text-white">INTEGRA</span>
+            <span className="block text-[4.6px] font-bold uppercase leading-none tracking-normal text-white/90">LOGISTICA</span>
           </div>
         </div>
       </div>
@@ -1235,7 +1186,7 @@ function EtiquetaDivergenteCard({ etiqueta }: { etiqueta: EtiquetaDivergente }) 
           </div>
 
           <div className="mt-[1mm] bg-bad px-[1mm] py-[0.8mm] text-white">
-            <p className="text-center text-[13px] font-black uppercase leading-none tracking-normal">DIVERGENTE</p>
+            <p className="text-center text-[13px] font-black uppercase leading-none tracking-normal">{etiqueta.tituloDivergencia}</p>
           </div>
 
           <div className="mt-[1mm] flex items-start justify-between gap-[1mm] border-b border-bad pb-[0.8mm]">

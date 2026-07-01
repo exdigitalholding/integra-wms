@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Barcode,
@@ -552,17 +553,25 @@ function PainelEtiquetas({
               </p>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={onDivergencia}
-              disabled={!recebimento || row.viagem.documentoStatus !== 'aprovado'}
-              className="btn-outline border-bad/30 text-bad hover:bg-bad-50"
+          <div className="flex items-start gap-3">
+            <Link
+              to="/montagem"
+              className="btn-primary inline-flex items-center gap-2"
             >
-              <AlertTriangle className="h-4 w-4" /> Divergência
-            </button>
-            <button onClick={onReemitir} disabled={!!bloqueio} className="btn-primary">
-              <Printer className="h-4 w-4" /> Re-emissão
-            </button>
+              <Truck className="h-4 w-4" /> Ir para montagem
+            </Link>
+            <div className="flex flex-col gap-2">
+              <button onClick={onReemitir} disabled={!!bloqueio} className="btn-outline">
+                <Printer className="h-4 w-4" /> Re-emissão
+              </button>
+              <button
+                onClick={onDivergencia}
+                disabled={!recebimento || row.viagem.documentoStatus !== 'aprovado'}
+                className="btn-outline border-bad/30 text-bad hover:bg-bad-50"
+              >
+                <AlertTriangle className="h-4 w-4" /> Divergência
+              </button>
+            </div>
           </div>
         </div>
 

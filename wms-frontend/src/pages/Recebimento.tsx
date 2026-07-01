@@ -11,6 +11,8 @@ import {
   CalendarDays,
   Search,
   UserRound,
+  FileText,
+  Send,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { ownerColor, ownerName } from '../lib/mock'
@@ -30,6 +32,7 @@ import type {
   Recebimento as Rec,
   SkuPendenteRecebimento,
   StatusRecebimento,
+  StatusConferenciaDocumentos,
 } from '../lib/types'
 
 const statusMeta: Record<StatusRecebimento, { l: string; tone: Tone }> = {
@@ -123,8 +126,15 @@ function classeMapaDia(recebimentos: Rec[], tarefas: TarefasState) {
 }
 
 export default function Recebimento() {
-  const { recebimentos, tarefas, skusControle, conferirItem, registrarOcorrencia, concluirRecebimento, toast } =
-    useStore()
+  const {
+    recebimentos,
+    tarefas,
+    skusControle,
+    conferirItem,
+    registrarOcorrencia,
+    concluirRecebimento,
+    toast,
+  } = useStore()
   const [aba, setAba] = useState('todos')
   const [aberto, setAberto] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
@@ -387,6 +397,8 @@ export default function Recebimento() {
 
 function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
   const { tarefas } = useStore()
+  const registrarConferenciaDocumental = useStore((s) => s.registrarConferenciaDocumental)
+  const toast = useStore((s) => s.toast)
   const [modoMapa, setModoMapa] = useState<MapaAgendaModo>('mensal')
   const [statusMapa, setStatusMapa] = useState<StatusRecebimento | 'todos'>('todos')
   const [dataDiaria, setDataDiaria] = useState(hojeRecebimentoIso)
@@ -535,6 +547,14 @@ function AgendaRecebimento({ recebimentos }: { recebimentos: Rec[] }) {
         <AgendaDetalheModal
           rec={agendaAberta}
           tarefas={tarefas.filter((t) => t.referenciaTipo === 'recebimento' && t.referenciaId === agendaAberta.id)}
+          onConferirDocumentos={(status, observacao) => {
+            registrarConferenciaDocumental(agendaAberta.id, status, observacao)
+            if (status === 'alinhado') {
+              toast({ tipo: 'sucesso', titulo: 'ConferÃªncia documental concluÃ­da', texto: `${agendaAberta.id} segue para GeraÃ§Ã£o de etiquetas.` })
+            } else {
+              toast({ tipo: 'aviso', titulo: 'DivergÃªncia documental registrada', texto: `${agendaAberta.id} enviado para Administrativo e Perdas e solucoes.` })
+            }
+          }}
           onClose={() => setAgendaAberta(null)}
         />
       )}
@@ -835,18 +855,24 @@ function AgendaDetalheModal({
   rec,
   tarefas,
   onClose,
+  onConferirDocumentos,
 }: {
   rec: Rec
   tarefas: ReturnType<typeof useStore.getState>['tarefas']
+  onConferirDocumentos: (status: 'alinhado' | 'divergente', observacao?: string) => void
   onClose: () => void
 }) {
   const skusControle = useStore((s) => s.skusControle)
+  const [conferenciaAberta, setConferenciaAberta] = useState(false)
   const pendenciasSku = useMemo(
     () => skusPendentesDoRecebimento(rec, skusControle),
     [rec, skusControle],
   )
   const bloqueadoPorSku = pendenciasSku.length > 0
   const ordemExecucaoAtual = rec.ordemExecucaoAtual ?? 0
+  const documentoConferencia = rec.documentoConferencia
+  const podeConferirDocumentos =
+    ordemExecucaoAtual === ORDEM_CONFERENCIA_DOCUMENTOS && (!documentoConferencia || documentoConferencia.status === 'pendente')
   const ordemExecucaoRecebimento = [
     { etapa: 'Encostar veículo' },
     { etapa: 'Conferência geral', detalhe: 'Checklist no WMS Mobile · depende de outro responsável' },
@@ -858,7 +884,8 @@ function AgendaDetalheModal({
   ]
 
   return (
-    <Modal
+    <>
+      <Modal
       open
       onClose={onClose}
       title={`Agenda ${rec.id}`}
@@ -938,6 +965,25 @@ function AgendaDetalheModal({
             })}
           </div>
         </div>
+        {podeConferirDocumentos && (
+          <button
+            onClick={() => setConferenciaAberta(true)}
+            className="btn-primary mt-3 w-full"
+          >
+            <FileText className="h-4 w-4" /> Conferir documentos
+          </button>
+        )}
+        {!podeConferirDocumentos && documentoConferencia && (
+          <div className="mt-3 rounded-xl border border-line bg-surface-sub px-3 py-2 text-xs text-ink-muted">
+            <p className="font-medium text-brand">
+              ConferÃªncia documental:
+              <span className={cn('ml-1', documentoConferencia.status === 'alinhado' ? 'text-ok' : 'text-bad')}>
+                {documentoConferencia.status === 'alinhado' ? 'Alinhada' : 'Divergente'}
+              </span>
+            </p>
+            {documentoConferencia.observacao && <p className="mt-1 whitespace-pre-line">{documentoConferencia.observacao}</p>}
+          </div>
+        )}
         {bloqueadoPorSku && (
           <div className="md:col-span-2 rounded-xl border border-bad/30 bg-bad-50 p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1012,6 +1058,18 @@ function AgendaDetalheModal({
         </div>
       </div>
     </Modal>
+
+    {conferenciaAberta && (
+      <ConferenciaDocumentosModal
+        rec={rec}
+        onClose={() => setConferenciaAberta(false)}
+        onDecidir={(status, observacao) => {
+          onConferirDocumentos(status, observacao)
+          setConferenciaAberta(false)
+        }}
+      />
+    )}
+    </>
   )
 }
 
@@ -1067,6 +1125,97 @@ function DiaAgendaModal({
         )}
       </div>
     </Modal>
+  )
+}
+
+function ConferenciaDocumentosModal({
+  rec,
+  onClose,
+  onDecidir,
+}: {
+  rec: Rec
+  onClose: () => void
+  onDecidir: (status: Exclude<StatusConferenciaDocumentos, 'pendente'>, observacao?: string) => void
+}) {
+  const [modo, setModo] = useState<'alinhado' | 'divergente' | null>(null)
+  const [observacao, setObservacao] = useState('')
+
+  const qtdItens = rec.itens.length
+  const qtdUnidades = totalUnidades(rec).toLocaleString('pt-BR')
+
+  return (
+    <>
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title="Conferencia documental"
+      subtitle={`Recebimento ${rec.id} · etapa ${ORDEM_CONFERENCIA_DOCUMENTOS}`}
+      footer={
+        <>
+          <button onClick={onClose} className="btn-outline">
+            Fechar
+          </button>
+          {!modo && (
+            <>
+              <button onClick={() => onDecidir('alinhado')} className="btn-primary">
+                <CheckCircle2 className="h-4 w-4" /> Documentos alinhados
+              </button>
+              <button
+                onClick={() => setModo('divergente')}
+                className="btn-outline text-bad border-bad/30 hover:bg-bad-50"
+              >
+                <Send className="h-4 w-4" /> Divergencia
+              </button>
+            </>
+          )}
+          {modo === 'divergente' && (
+            <button onClick={() => onDecidir('divergente', observacao)} disabled={!observacao.trim()} className="btn-accent">
+              Enviar para Administrativo e Perdas e solucoes
+            </button>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-xl border border-line bg-surface-sub px-3 py-3">
+          <div className="text-sm text-brand font-medium">Dados para conferencia</div>
+          <div className="mt-2 grid gap-2 text-sm">
+            <p><span className="text-ink-muted">Fornecedor:</span> {rec.fornecedor}</p>
+            <p><span className="text-ink-muted">NFe:</span> {rec.documento}</p>
+            <p><span className="text-ink-muted">Tipo documento:</span> {rec.tipoDoc}</p>
+            <p><span className="text-ink-muted">CTE:</span> {rec.cte ?? 'Nao informado'}</p>
+            <p><span className="text-ink-muted">Qtd de SKUs:</span> {qtdItens}</p>
+            <p><span className="text-ink-muted">Qtd de unidades:</span> {qtdUnidades}</p>
+          </div>
+        </div>
+        <div>
+          <div className="text-sm text-brand font-medium mb-2">Itens da nota</div>
+          <div className="space-y-2 max-h-44 overflow-auto pr-1">
+            {rec.itens.map((item) => (
+              <div key={item.skuCodigo} className="rounded-lg border border-line px-3 py-2 text-sm">
+                <p className="font-medium text-brand">{item.skuCodigo} - {item.descricao}</p>
+                <p className="text-xs text-ink-muted">Quantidade esperada: <span className="mono">{item.esperado.toLocaleString('pt-BR')}</span></p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {modo === 'divergente' && (
+          <div>
+            <label className="label">Descricao da divergencia</label>
+            <textarea
+              value={observacao}
+              onChange={(event) => setObservacao(event.target.value)}
+              rows={4}
+              className="input resize-none"
+              placeholder="Informe o que nao confere com o documento fisico."
+            />
+          </div>
+        )}
+      </div>
+    </Modal>
+    </>
   )
 }
 

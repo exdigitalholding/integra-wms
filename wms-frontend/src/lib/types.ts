@@ -75,6 +75,15 @@ export type StatusRecebimento =
   | 'divergencia'
   | 'concluido'
 
+export type StatusConferenciaDocumentos = 'pendente' | 'alinhado' | 'divergente'
+
+export interface ConferenciaDocumental {
+  status: StatusConferenciaDocumentos
+  observacao?: string
+  registradoEm?: string
+  registradoPor?: string
+}
+
 export interface ItemRecebimento {
   skuCodigo: string
   descricao: string
@@ -91,6 +100,7 @@ export interface Recebimento {
   doca: string
   fornecedor: string
   documento: string
+  cte?: string
   tipoDoc: 'NF-e' | 'ASN'
   ownerId: string
   vertente: Vertente
@@ -101,6 +111,7 @@ export interface Recebimento {
   ordemDoca?: number
   ordemExecucaoAtual?: number
   eta: string
+  documentoConferencia?: ConferenciaDocumental
   status: StatusRecebimento
   itens: ItemRecebimento[]
 }

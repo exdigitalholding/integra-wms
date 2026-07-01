@@ -13,7 +13,10 @@ import {
   SKU_CONTROLE_HISTORICO,
   TAREFAS,
 } from '../lib/mock'
-import { ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO } from '../lib/skuControle'
+import {
+  ORDEM_CLASSIFICACAO_DESTINO_ENDERECAMENTO,
+  ORDEM_CONFERENCIA_DOCUMENTOS,
+} from '../lib/skuControle'
 import { DEFAULT_ZPL_PRINTER_CONFIG, normalizarZplPrinterConfig } from '../lib/printerConfig'
 import type { RegistroDivergenciaEtiqueta } from '../lib/divergenciaEtiquetagem'
 import type {
@@ -24,6 +27,7 @@ import type {
   OperationalOccurrence,
   OccurrenceStatus,
   Pedido,
+  StatusConferenciaDocumentos,
   PosicaoEstoque,
   Recebimento,
   Romaneio,
@@ -79,6 +83,11 @@ interface State {
   conferirItem: (recId: string, sku: string, contado: number) => void
   registrarOcorrencia: (recId: string, sku: string, oc: Ocorrencia) => void
   concluirRecebimento: (recId: string) => void
+  registrarConferenciaDocumental: (
+    recId: string,
+    status: Exclude<StatusConferenciaDocumentos, 'pendente'>,
+    observacao?: string,
+  ) => void
 
   // tarefas
   criarTarefa: (input: Omit<Tarefa, 'id' | 'status'> & { status?: Tarefa['status'] }) => string
@@ -268,6 +277,67 @@ export const useStore = create<State>((set, get) => ({
           : r,
       ),
     })),
+
+  registrarConferenciaDocumental: (recId, status, observacao) =>
+    set((s) => {
+      const rec = s.recebimentos.find((item) => item.id === recId)
+      if (!rec) return s
+
+      const usuario = s.usuario || 'Supervisor demo'
+      const agora = new Date().toISOString()
+      const andamento = status === 'alinhado' ? ORDEM_CONFERENCIA_DOCUMENTOS + 1 : rec.ordemExecucaoAtual ?? 0
+
+      const tarefasConferencia = [...s.tarefas]
+      if (status === 'divergente') {
+        const destinos = ['Administrativo', 'Perdas e solucoes']
+        destinos.forEach((destino) => {
+          const jaExiste = tarefasConferencia.some(
+            (tarefa) =>
+              tarefa.tipo === 'divergencia' &&
+              tarefa.referenciaTipo === 'recebimento' &&
+              tarefa.referenciaId === recId &&
+              tarefa.destino === destino,
+          )
+          if (jaExiste) return
+
+          tarefasConferencia.push({
+            id: `OS-${++tarefaSeq}`,
+            tipo: 'divergencia',
+            prioridade: 'alta',
+            operador: null,
+            status: 'a-fazer',
+            origem: `Recebimento ${rec.id}`,
+            destino,
+            sku: rec.documento,
+            descricao: `Conferencia documental divergente para ${rec.id} (${rec.fornecedor})`,
+            quantidade: 1,
+            sla: '30 min',
+            etapa: 'Conferencia documental',
+            referenciaTipo: 'recebimento',
+            referenciaId: rec.id,
+          })
+        })
+      }
+
+      return {
+        recebimentos: s.recebimentos.map((r) =>
+          r.id === recId
+            ? {
+                ...r,
+                status: status === 'alinhado' && r.status !== 'divergencia' ? 'em-conferencia' : 'divergencia',
+                ordemExecucaoAtual: status === 'alinhado' ? andamento : r.ordemExecucaoAtual,
+                documentoConferencia: {
+                  status,
+                  observacao,
+                  registradoEm: agora,
+                  registradoPor: usuario,
+                },
+              }
+            : r,
+        ),
+        tarefas: tarefasConferencia,
+      }
+    }),
 
   criarTarefa: (input) => {
     const id = `OS-${++tarefaSeq}`
